@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/appBg"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Добро пожаловать!"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingTop="20dp"
+            android:paddingBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Termux Assistant AI"
+            android:textColor="?attr/appTextSecondary"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:paddingBottom="24dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Проверим, что всё готово к работе. Это займёт минуту."
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="15sp"
+            android:paddingBottom="20dp"/>
+
+        <LinearLayout
+            android:id="@+id/step_termux"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/appBgCard"
+            android:padding="14dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/step_termux_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="✗ Termux"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:id="@+id/step_termux_desc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Приложение Termux (из F-Droid)"
+                android:textColor="?attr/appTextSecondary"
+                android:textSize="12sp"
+                android:paddingTop="4dp"/>
+
+            <Button
+                android:id="@+id/btn_termux"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Открыть F-Droid"
+                android:textSize="13sp"
+                style="@style/PrimaryButton"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/step_api"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/appBgCard"
+            android:padding="14dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/step_api_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="✗ Termux:API"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Дополнение для Termux (из F-Droid)"
+                android:textColor="?attr/appTextSecondary"
+                android:textSize="12sp"
+                android:paddingTop="4dp"/>
+
+            <Button
+                android:id="@+id/btn_api"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Открыть F-Droid"
+                android:textSize="13sp"
+                style="@style/PrimaryButton"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/step_deepseek"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/appBgCard"
+            android:padding="14dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/step_deepseek_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="✗ DeepSeek"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Приложение DeepSeek (из Play Market)"
+                android:textColor="?attr/appTextSecondary"
+                android:textSize="12sp"
+                android:paddingTop="4dp"/>
+
+            <Button
+                android:id="@+id/btn_deepseek"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Открыть Play Market"
+                android:textSize="13sp"
+                style="@style/PrimaryButton"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/step_permissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/appBgCard"
+            android:padding="14dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/step_permissions_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="✗ Разрешения"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Файлы и микрофон"
+                android:textColor="?attr/appTextSecondary"
+                android:textSize="12sp"
+                android:paddingTop="4dp"/>
+
+            <Button
+                android:id="@+id/btn_permissions"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Выдать разрешения"
+                android:textSize="13sp"
+                style="@style/PrimaryButton"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/step_service"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="?attr/appBgCard"
+            android:padding="14dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/step_service_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="✗ AI Bridge Service"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Специальные возможности"
+                android:textColor="?attr/appTextSecondary"
+                android:textSize="12sp"
+                android:paddingTop="4dp"/>
+
+            <Button
+                android:id="@+id/btn_service"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Открыть настройки"
+                android:textSize="13sp"
+                style="@style/PrimaryButton"/>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_finish"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="Начать работу"
+            android:textSize="16sp"
+            style="@style/PrimaryButton"/>
+
+        <Button
+            android:id="@+id/btn_skip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Пропустить (настрою позже)"
+            android:textColor="?attr/appTextSecondary"
+            android:background="@android:color/transparent"/>
+
+    </LinearLayout>
+</ScrollView>

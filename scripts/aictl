@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""aictl — управление связкой AI Bridge Service ↔ Termux.
+
+Команды:
+  aictl start        — запустить приёмник (receiver.py) в фоне
+  aictl stop         — остановить приёмник
+  aictl restart      — перезапустить
+  aictl status       — статус (PID, порты, версия сервиса)
+  aictl log [N]      — последние N строк лога (по умолчанию 40)
+  aictl tail         — tail -f лога
+  aictl cycle [--delay N]   — запустить один полный цикл
+  aictl watch [N]    — автоцикл каждые N сек (по умолчанию 10)
+  aictl dry          — сухой прогон cycle
+  aictl whoami       — проверка сервиса
+  aictl field        — тапнуть в поле ввода DeepSeek
+  aictl submit       — нажать «Отправить» в DeepSeek
+  aictl open         — открыть DeepSeek
+  aictl reset        — сбросить память выполненных блоков
+  aictl ask "текст"  — отправить произвольный промпт в DeepSeek
+"""
+import os, sys, time, socket, subprocess, signal
+
+HOME = os.path.expanduser("~")
+RUN = os.path.join(HOME, "projects", "termux-ai-kit", "a11y-apk", "run")
+LOG = os.path.join(RUN, "receiver.log")
+PID = os.path.join(RUN, "receiver.pid")
+BIN = os.path.join(HOME, "bin")
+
+def sh(cmd, **kw):
+    return subprocess.run(cmd, shell=isinstance(cmd, str), capture_output=False, **kw)
+
+def send(cmd):
+    try:
+        s = socket.create_connection(("127.0.0.1", 8766), timeout=3)
+        s.sendall((cmd + "\n").encode("utf-8"))
+        s.close()
+        return True
+    except Exception as e:
+        print(f"FAIL: {e}"); return False
+
+def is_running():
+    if not os.path.exists(PID): return False
+    try:
+        pid = int(open(PID).read().strip())
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+def start_receiver():
+    os.makedirs(RUN, exist_ok=True)
+    if is_running():
+        print("приёмник уже работает, PID:", open(PID).read().strip())
+        return
+    rec = os.path.join(RUN, "receiver.py")
+    if not os.path.exists(rec):
+        print("!! receiver.py не найден:", rec)
+        sys.exit(1)
+    subprocess.Popen(["nohup", "python3", "-u", rec],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     cwd=RUN, start_new_session=True)
+    time.sleep(1.5)
+    # pid мог быть записан самим receiver.py, если нет — пишем
+    if not os.path.exists(PID):
+        # попробуем найти процесс
+        try:
+            out = subprocess.check_output(["pgrep", "-f", "receiver.py"]).decode().strip().split("\n")
+            if out:
+                open(PID, "w").write(out[-1])
+        except Exception:
+            pass
+    print("started, PID:", open(PID).read().strip() if os.path.exists(PID) else "?")
+
+def stop_receiver():
+    if not os.path.exists(PID):
+        print("PID-файл не найден, ничего не убиваю"); return
+    try:
+        pid = int(open(PID).read().strip())
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.5)
+        print(f"убит PID {pid}")
+    except ProcessLookupError:
+        print(f"PID {pid} уже мёртв")
+    except Exception as e:
+        print(f"ошибка: {e}")
+    try: os.remove(PID)
+    except: pass
+
+def status():
+    print("=== aictl status ===")
+    if is_running():
+        print("receiver: RUNNING, PID", open(PID).read().strip())
+    else:
+        print("receiver: STOPPED")
+    for port in (8765, 8766):
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=1)
+            print(f"  port {port}: OK"); s.close()
+        except Exception as e:
+            print(f"  port {port}: FAIL ({e})")
+    print("--- WHOAMI ---")
+    send("WHOAMI"); time.sleep(0.8)
+    try:
+        with open(LOG, "rb") as f:
+            data = f.read().decode("utf-8", "replace").splitlines()
+        for l in reversed(data):
+            if "WHOAMI" in l or "HELLO" in l:
+                print(l); break
+    except Exception as e:
+        print("лог недоступен:", e)
+
+def tail(n=40):
+    try:
+        with open(LOG, "rb") as f:
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        for l in lines[-n:]: print(l)
+    except Exception as e:
+        print(f"нет лога: {e}")
+
+def tailf():
+    try:
+        subprocess.run(["tail", "-f", LOG])
+    except KeyboardInterrupt:
+        pass
+
+def cycle(delay=0, dry=False):
+    args = ["~/bin/ai-cycle"]
+    if delay: args += ["--delay", str(delay)]
+    if dry: args += ["--dry-run"]
+    os.execvp(os.path.expanduser("~/bin/ai-cycle"), [os.path.expanduser("~/bin/ai-cycle")] + args[1:])
+
+def watch(interval=10):
+    print(f">>> Автоцикл каждые {interval} сек. Ctrl+C для выхода.")
+    try:
+        while True:
+            print(f"\n=== {time.strftime('%H:%M:%S')} цикл ===")
+            try:
+                subprocess.run([os.path.expanduser("~/bin/ai-cycle")], timeout=40)
+            except subprocess.TimeoutExpired:
+                print("(timeout)")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\n>>> Остановлено.")
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__); sys.exit(0)
+    cmd = args[0]
+    if cmd == "start": start_receiver()
+    elif cmd == "stop": stop_receiver()
+    elif cmd == "restart": stop_receiver(); time.sleep(1); start_receiver()
+    elif cmd == "status": status()
+    elif cmd == "log": tail(int(args[1]) if len(args) > 1 else 40)
+    elif cmd == "tail": tailf()
+    elif cmd == "cycle":
+        d = 0
+        if "--delay" in args: d = int(args[args.index("--delay") + 1])
+        cycle(delay=d, dry=("--dry-run" in args))
+    elif cmd == "dry": cycle(dry=True)
+    elif cmd == "watch": watch(int(args[1]) if len(args) > 1 else 10)
+    elif cmd == "whoami":
+        send("WHOAMI"); time.sleep(1); tail(3)
+    elif cmd == "field":
+        send("CLICK 537 2055")
+    elif cmd == "submit":
+        send("ACT_CLICK Отправить")
+    elif cmd == "open":
+        send("OPEN_APP com.deepseek.chat")
+    elif cmd == "auto":
+        if len(args) < 2:
+            print('usage: aictl auto "задача" [--max N] [--errors M]')
+            sys.exit(1)
+        subprocess.run([os.path.expanduser("~/bin/aib-auto")] + args[1:])
+    elif cmd == "reset":
+        try:
+            os.remove(os.path.expanduser("~/.ai-cycle-seen"))
+            print("память сброшена")
+        except FileNotFoundError:
+            print("память уже пуста")
+    elif cmd == "ask":
+        if len(args) < 2:
+            print("usage: aictl ask \"текст\""); sys.exit(1)
+        text = " ".join(args[1:])
+        import base64 as _b64
+        b64 = _b64.b64encode(text.encode("utf-8")).decode("ascii")
+        print(f"отправляю в DeepSeek: {text[:60]}...")
+        # открываем DeepSeek
+        send("OPEN_APP com.deepseek.chat")
+        time.sleep(3)
+        # тап в поле и вставка
+        send("CLICK 537 2055"); time.sleep(2)
+        send(f"SETTEXT {b64}"); time.sleep(1.5)
+        # отправка
+        send("ACT_CLICK Отправить"); time.sleep(1.5)
+        send("CLICK 966 1397"); time.sleep(1)
+        print("отправлено")
+    else:
+        print(f"неизвестная команда: {cmd}")
+        print(__doc__)

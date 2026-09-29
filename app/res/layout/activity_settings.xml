@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/appBg"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_title"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:paddingBottom="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AI Bridge Service"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:paddingTop="12dp"
+            android:paddingBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/bg_card"
+            android:padding="12dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/aibridge_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:lineSpacingExtra="4dp"/>
+
+            <Button
+                android:id="@+id/btn_open_a11y"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Открыть специальные возможности"
+                style="@style/PrimaryButton"/>
+
+            <Button
+                android:id="@+id/btn_open_a11y_settings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Открыть настройки приложения"
+                style="@style/PrimaryButton"/>
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/bg_card"
+            android:padding="12dp"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:lineSpacingExtra="3dp"
+            android:text="Как включить сервис (один раз):
+
+1. Нажми «Открыть специальные возможности»
+2. Найди AI Bridge Service → попробуй включить
+3. Если пишет «Ограниченные настройки» — вернись сюда
+4. Нажми «Открыть настройки приложения»
+5. В правом верхнем углу — три точки ⋮
+6. Пункт «Разрешить ограниченные настройки»
+7. Подтверди PIN / отпечаток
+8. Снова открой Специальные возможности — теперь тумблер включится
+
+Важно: пункт «Разрешить ограниченные настройки» в ⋮ появится только после шага 3 — это защита Android."/>
+
+        <Button
+            android:id="@+id/btn_open_restricted"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Разрешить ограниченные настройки"
+            android:visibility="gone"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/env_check"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:paddingBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/env_details"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/appBgCard"
+            android:padding="12dp"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="13sp"
+            android:lineSpacingExtra="4dp"/>
+
+        <Button
+            android:id="@+id/btn_recheck"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Проверить снова"
+            style="@style/PrimaryButton"/>
+
+        <Button
+            android:id="@+id/btn_open_sdcard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Открыть папку /sdcard/ai-tasker"/>
+
+        <Button
+            android:id="@+id/btn_open_docs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="📖 Инструкция"
+            android:textSize="15sp"
+            style="@style/PrimaryButton"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="О приложении"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:paddingTop="24dp"
+            android:paddingBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/appBgCard"
+            android:padding="12dp"
+            android:textColor="?attr/appTextSecondary"
+            android:textSize="12sp"
+            android:lineSpacingExtra="4dp"
+            android:text="Termux Assistant AI 1.0\n\nУправление задачами через Termux + DeepSeek.\nПриложение кладёт задачу в /sdcard/ai-tasker/inbox/, демон в Termux её выполняет и пишет результат в outbox/."/>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Разработка"
+                android:textColor="?attr/appTextPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:paddingTop="20dp"
+                android:paddingBottom="8dp"/>
+
+            <Button
+                android:id="@+id/btn_improve"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🛠 Улучшить это приложение"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                style="@style/PrimaryButton"/>
+
+            <Button
+                android:id="@+id/btn_vk"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="💬 Сообщество ВК"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                style="@style/PrimaryButton"/>
+
+            <TextView            android:layout_width="match_parent"            android:layout_height="wrap_content"            android:text="@string/theme_title"            android:textColor="?attr/appTextPrimary"            android:textSize="15sp"            android:textStyle="bold"            android:paddingTop="16dp"            android:paddingBottom="8dp"/>        <RadioGroup            android:id="@+id/theme_group"            android:layout_width="match_parent"            android:layout_height="wrap_content"            android:orientation="vertical"            android:paddingBottom="16dp">            <RadioButton                android:id="@+id/theme_light"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_light"                android:textColor="?attr/appTextPrimary"/>            <RadioButton                android:id="@+id/theme_dark"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_dark"                android:textColor="?attr/appTextPrimary"/>            <RadioButton                android:id="@+id/theme_system"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_system"                android:textColor="?attr/appTextPrimary"/>        </RadioGroup></LinearLayout>
+</ScrollView>

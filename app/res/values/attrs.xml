@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <attr name="appBg" format="color"/>
+  <attr name="appBgCard" format="color"/>
+  <attr name="appBgInput" format="color"/>
+  <attr name="appTextPrimary" format="color"/>
+  <attr name="appTextSecondary" format="color"/>
+  <attr name="appAccent" format="color"/>
+  <attr name="appDivider" format="color"/>
+</resources>

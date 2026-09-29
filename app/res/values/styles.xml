@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+  <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+    <item name="appBg">#0F1115</item>
+    <item name="appBgCard">#1A1D23</item>
+    <item name="appBgInput">#232730</item>
+    <item name="appTextPrimary">#E6E8EB</item>
+    <item name="appTextSecondary">#8B919A</item>
+    <item name="appAccent">#4C8DFF</item>
+    <item name="appDivider">#2A2F3A</item>
+    <item name="android:windowBackground">?attr/appBg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+  </style>
+
+  <style name="AppTheme.Dark" parent="android:Theme.Material.NoActionBar">
+    <item name="appBg">#0F1115</item>
+    <item name="appBgCard">#1A1D23</item>
+    <item name="appBgInput">#232730</item>
+    <item name="appTextPrimary">#E6E8EB</item>
+    <item name="appTextSecondary">#8B919A</item>
+    <item name="appAccent">#4C8DFF</item>
+    <item name="appDivider">#2A2F3A</item>
+    <item name="android:windowBackground">?attr/appBg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+  </style>
+
+  <style name="AppTheme.Light" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="appBg">#FFFFFF</item>
+    <item name="appBgCard">#F5F5F5</item>
+    <item name="appBgInput">#EAEAEA</item>
+    <item name="appTextPrimary">#1A1A1A</item>
+    <item name="appTextSecondary">#666666</item>
+    <item name="appAccent">#1976D2</item>
+    <item name="appDivider">#DDDDDD</item>
+    <item name="android:windowBackground">?attr/appBg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+  </style>
+
+  <style name="Card">
+    <item name="android:background">?attr/appBgCard</item>
+    <item name="android:padding">12dp</item>
+  </style>
+
+  <style name="PrimaryButton" parent="android:Widget.Material.Button">
+    <item name="android:background">?attr/appAccent</item>
+    <item name="android:textColor">?attr/appTextPrimary</item>
+    <item name="android:textAllCaps">false</item>
+    <item name="android:textSize">15sp</item>
+  </style>
+
+</resources>

@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+"""ai-cycle v3 — умный state-machine для DeepSeek ↔ Termux.
+
+Каждый шаг проверяет реальное состояние через DUMP, а не ждёт вслепую.
+"""
+import socket, sys, os, re, subprocess, time, hashlib, base64
+
+HOST, PORT = "127.0.0.1", 8766
+LOG = os.path.expanduser("~/projects/termux-ai-kit/a11y-apk/run/receiver.log")
+SEEN = os.path.expanduser("~/.ai-cycle-seen")
+DEEPSEEK = "com.deepseek.chat"
+
+DANGEROUS = [
+    r"\brm\s+-rf\s+/\s*$", r"\brm\s+-rf\s+/\s", r"\bmkfs\.",
+    r"\bdd\s+.*of=/dev/", r":\(\)\s*\{\s*:\|:&\s*\};:",
+    r">\s*/dev/sd", r"\bshutdown\b", r"\breboot\b",
+]
+FORBIDDEN = ["Размышлял", "Думает", "Генерир", "Результат (", "ai-cycle", "aictl "]
+
+
+# ============ ТРАНСПОРТ ============
+def send(cmd):
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=3)
+        s.sendall((cmd + "\n").encode("utf-8")); s.close()
+        return True
+    except Exception:
+        return False
+
+
+def _read_log_since(offset):
+    try:
+        with open(LOG, "rb") as f:
+            f.seek(offset)
+            return f.read().decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def _log_size():
+    try: return os.path.getsize(LOG)
+    except OSError: return 0
+
+
+# ============ СНЯТИЕ ЭКРАНА ============
+def dump(timeout=6):
+    """Послать DUMP и вернуть строки свежего дампа."""
+    off = _log_size()
+    send("DUMP")
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(0.25)
+        data = _read_log_since(off)
+        if "DUMP_END" not in data: continue
+        idx = data.rfind("DUMP_END")
+        begin = data.rfind("DUMP_BEGIN", 0, idx)
+        if begin < 0: continue
+        block = data[begin:idx + len("DUMP_END")].splitlines()
+        out = []
+        for l in block:
+            m = re.match(r"^\[\d\d:\d\d:\d\d\] (.*)$", l)
+            out.append(m.group(1) if m else l)
+        return out
+    return None
+
+
+# ============ ПАРСИНГ ДАМПА ============
+def parse(dump_lines):
+    """Вернуть структурированное состояние экрана."""
+    state = {
+        "pkg": None,
+        "edittext_text": None,
+        "edittext_rect": None,
+        "has_otpravit": False,
+        "otpravit_coord": None,
+        "thinking": False,
+        "raw": dump_lines,
+    }
+    if not dump_lines: return state
+
+    for l in dump_lines:
+        if "DUMP_ROOT pkg=" in l and state["pkg"] is None:
+            state["pkg"] = l.split("DUMP_ROOT pkg=")[1].strip()
+
+    # EditText (только с реальной шириной — фильтр багов Termux)
+    for l in dump_lines:
+        if "EditText" in l and "text=" in l:
+            m_rect = re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if not m_rect: continue
+            x1, y1, x2, y2 = map(int, m_rect.groups())
+            if x2 - x1 < 100: continue  # служебный узел, не поле ввода
+            m_txt = re.search(r'text="((?:[^"\\]|\\.)*)"', l)
+            state["edittext_text"] = m_txt.group(1).replace("\\n", "\n").replace('\\"', '"') if m_txt else ""
+            state["edittext_rect"] = (x1, y1, x2, y2)
+
+    # Кнопка Отправить
+    for l in dump_lines:
+        if 'desc="Отправить"' in l:
+            m = re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if m:
+                x1, y1, x2, y2 = map(int, m.groups())
+                state["has_otpravit"] = True
+                state["otpravit_coord"] = ((x1 + x2) // 2, (y1 + y2) // 2)
+
+    # Признак «думает»
+    joined = "\n".join(dump_lines)
+    if ("Размышлял" in joined) or ("Думает" in joined) or ("Генерир" in joined):
+        state["thinking"] = True
+
+    return state
+
+
+def snapshot():
+    return parse(dump())
+
+
+# ============ WAIT-FOR (главное улучшение) ============
+def wait_for(predicate, timeout=15, poll=0.6, label="условие"):
+    """Ждёт, пока snapshot не удовлетворит predicate. Возвращает snapshot или None."""
+    t0 = time.time()
+    last = None
+    while time.time() - t0 < timeout:
+        last = snapshot()
+        try:
+            if predicate(last):
+                return last
+        except Exception:
+            pass
+        print(".", end="", flush=True)
+        time.sleep(poll)
+    print(f"   ✗ timeout ({timeout}s): {label}")
+    if last:
+        print(f"     последнее: pkg={last['pkg']}, edittext={bool(last['edittext_text'])}, "
+              f"otpravit={last['has_otpravit']}, thinking={last['thinking']}")
+    return None
+
+
+# ============ КОД-БЛОКИ ИЗ DEEPSEEK ============
+def extract_blocks(dump_lines):
+    parsed = []
+    for line in dump_lines:
+        s = line.strip()
+        if not s or s.startswith(("DUMP_ROOT", "DUMP_BEGIN", "DUMP_END")): continue
+        indent = len(line) - len(line.lstrip(" "))
+        m = re.search(r'text="((?:[^"\\]|\\.)*)"', line)
+        text = m.group(1).replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\") if m else ""
+        parsed.append((indent, text, line))
+
+    blocks = []
+    for i, (ind, txt, raw) in enumerate(parsed):
+        if txt != "Копировать" or "TextView" not in raw: continue
+        lang = "?"
+        for j in range(max(0, i - 6), i):
+            t = parsed[j][1]
+            if t and t != "Копировать" and re.match(r"^[a-zA-Z0-9_+#-]{1,20}$", t):
+                lang = t
+        container_indent = ind - 4
+        code, y = None, 0
+        for j in range(i + 1, len(parsed)):
+            pj_ind, pj_txt, pj_raw = parsed[j]
+            if pj_ind < container_indent and pj_txt: break
+            if pj_ind == container_indent and "TextView" in pj_raw and pj_txt:
+                code = pj_txt
+                m = re.search(r"\[(\d+),(\d+),", pj_raw)
+                if m: y = int(m.group(2))
+                break
+        if code is not None:
+            blocks.append({"lang": lang, "code": code, "y": y})
+    return blocks
+
+
+def code_hash(c): return hashlib.sha256(c.encode("utf-8")).hexdigest()[:16]
+def block_id(c, y): return f"{y}:{code_hash(c)}"
+
+
+def load_seen():
+    """Загрузка вида {hash: timestamp}. Совместимо со старым форматом (только hash)."""
+    out = {}
+    try:
+        with open(SEEN) as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                if not parts or not parts[0]: continue
+                h = parts[0]
+                try: ts = int(parts[1]) if len(parts) > 1 else 0
+                except: ts = 0
+                out[h] = ts
+    except FileNotFoundError:
+        pass
+    # автоочистка: старше 24 часов — забыть
+    import time as _t
+    now = int(_t.time())
+    return {h: ts for h, ts in out.items() if now - ts < 86400}
+
+def save_seen(d):
+    import time as _t
+    now = int(_t.time())
+    with open(SEEN, "w") as f:
+        for h, ts in sorted(d.items()):
+            f.write(f"{h}\t{ts or now}\n")
+
+
+def is_forbidden(code):
+    for p in FORBIDDEN:
+        if p in code: return p
+    return None
+
+def is_dangerous(code):
+    for p in DANGEROUS:
+        if re.search(p, code, re.MULTILINE): return p
+    return None
+
+
+# ============ ОСНОВНОЙ ЦИКЛ ============
+def main():
+    args = sys.argv[1:]
+    dry = "--dry-run" in args
+    delay = 0
+    if "--delay" in args:
+        try: delay = int(args[args.index("--delay") + 1])
+        except Exception: pass
+
+    if delay > 0:
+        print(f">>> Жду {delay} сек. Переключись в DeepSeek на свежий код-блок.")
+        time.sleep(delay)
+
+    # === ШАГ 1: ждём DeepSeek на переднем плане ===
+    print(">>> [1] Жду DeepSeek на экране (до 10 сек)...")
+    st = wait_for(lambda s: s["pkg"] == DEEPSEEK, timeout=10, label="pkg==deepseek")
+    if not st:
+        print("!!! DeepSeek не вышел на экран")
+        sys.exit(1)
+    print(f"    ✓ pkg={st['pkg']}")
+
+    # === ШАГ 2: извлекаем свежий код-блок ===
+    blocks = extract_blocks(st["raw"])
+    if not blocks:
+        print("!!! На экране нет код-блоков")
+        sys.exit(2)
+    blocks.sort(key=lambda b: b["y"])
+    print(f">>> [2] Найдено блоков: {len(blocks)}")
+
+    target = blocks[-1]
+    code = target["code"].strip()
+    print(f"    свежий блок [{target['lang']}] (y={target['y']}, {len(code)} симв.):")
+    for ln in code.splitlines()[:5]: print(f"      {ln}")
+    if len(code.splitlines()) > 5: print(f"      ... (+{len(code.splitlines()) - 5} строк)")
+
+    bad = is_forbidden(code)
+    if bad:
+        print(f"!!! Блок служебный (содержит {bad!r}) — пропуск.")
+        sys.exit(0)
+
+    h = block_id(code, target["y"])
+    seen = load_seen()
+    if h in seen:
+        print(f">>> Блок уже выполнялся (hash {h}) — пропуск.")
+        sys.exit(0)
+
+    if dry:
+        print(f">>> --dry-run. Хеш: {h}")
+        sys.exit(0)
+
+    danger = is_dangerous(code)
+    if danger:
+        print(f"!!! ОПАСНО ({danger}) — прерываю.")
+        sys.exit(4)
+
+    # === ШАГ 3: выполняем ===
+    print(">>> [3] Выполняю bash...")
+    try:
+        r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=60)
+        out, err, rc = r.stdout.decode("utf-8","replace"), r.stderr.decode("utf-8","replace"), r.returncode
+    except subprocess.TimeoutExpired:
+        out, err, rc = "", "(TIMEOUT 60s)", 124
+
+    result = out + ("\n" + err if err else "")
+    result = result.strip() or f"(пустой вывод, rc={rc})"
+    if len(result) > 8000: result = result[:8000] + "\n...[обрезано]"
+
+    print(f"    rc={rc}, {len(result)} симв.")
+    for ln in result.splitlines()[:5]: print(f"      {ln}")
+
+    seen[h] = int(time.time()); save_seen(seen)
+
+    # === ШАГ 4: поднимаем DeepSeek и ждём подтверждения ===
+    print(">>> [4] Поднимаю DeepSeek...")
+    send(f"OPEN_APP {DEEPSEEK}")
+    st = wait_for(lambda s: s["pkg"] == DEEPSEEK, timeout=15, label="pkg==deepseek после open")
+    if not st:
+        print("!!! DeepSeek не вернулся на передний план")
+        sys.exit(5)
+    print("    ✓ DeepSeek сверху")
+
+    # === ШАГ 5: тапаем в поле и вставляем текст ===
+    reply = f"Результат ({rc}):\n```\n{result}\n```"
+    b64 = base64.b64encode(reply.encode("utf-8")).decode("ascii")
+
+    # Сначала пробуем без тапа — может поле уже в фокусе
+    send(f"SETTEXT {b64}")
+    st = wait_for(lambda s: s["edittext_text"] and s["edittext_text"].startswith("Результат"),
+                  timeout=4, poll=0.4, label="наша вставка в поле")
+
+    if not st:
+        print(">>> [5] Поле пустое/чужое. Тапаю в поле...")
+        send("CLICK 537 2055")
+        # ждём, пока появится EditText
+        st = wait_for(lambda s: s["edittext_text"] is not None,
+                      timeout=6, poll=0.4, label="EditText появился")
+        if not st:
+            print("!!! EditText не появился после тапа")
+            sys.exit(6)
+        # вставляем снова
+        send(f"SETTEXT {b64}")
+        st = wait_for(lambda s: s["edittext_text"] and s["edittext_text"].startswith("Результат"),
+                      timeout=4, poll=0.4, label="наша вставка в поле (после тапа)")
+        if not st:
+            print("!!! Текст не установился даже после тапа")
+            sys.exit(7)
+
+    print(f"    ✓ в поле: {st['edittext_text'][:60]!r}")
+
+    # === ШАГ 6: ждём кнопку «Отправить» (она = DeepSeek готов к вводу) ===
+    print(">>> [6] Жду кнопку «Отправить» (признак, что DeepSeek готов)...")
+    st = wait_for(lambda s: s["has_otpravit"] and s["otpravit_coord"],
+                  timeout=15, poll=0.5, label="кнопка Отправить")
+    if not st:
+        print("!!! Кнопка Отправить не появилась — DeepSeek занят")
+        sys.exit(9)
+
+    ox, oy = st["otpravit_coord"]
+    if oy < 1000:
+        print(f"!!! Кнопка на подозрительной y={oy}, пропускаю")
+        sys.exit(10)
+
+    print(f">>> [7] Тапаю «Отправить» на {ox},{oy}")
+    send(f"CLICK {ox} {oy}")
+
+    # === ШАГ 8: ждём, что текст ушёл из поля ===
+    st = wait_for(lambda s: not (s["edittext_text"] and s["edittext_text"].startswith("Результат")),
+                  timeout=6, poll=0.5, label="текст ушёл из поля")
+
+    if st:
+        print(">>> ✅ Отправлено.")
+    else:
+        # Второй тап
+        print(">>> Повторный тап...")
+        send(f"CLICK {ox} {oy}")
+        time.sleep(1.5)
+        st = snapshot()
+        if not (st["edittext_text"] and st["edittext_text"].startswith("Результат")):
+            print(">>> ✅ Отправлено (после повтора).")
+        else:
+            print(">>> ❌ Текст всё ещё в поле.")
+            sys.exit(11)
+
+    print(f">>> Готово. Хеш блока: {h}")
+
+
+
+
+def dump_last_block():
+    """Печатает содержимое ~/last_code_block если файл существует."""
+    import os
+    p = os.path.expanduser("~/last_code_block")
+    if os.path.exists(p):
+        with open(p) as f:
+            print("=== last_code_block ===")
+            print(f.read())
+    else:
+        print("(last_code_block не найден)")
+
+if __name__ == "__main__":
+    main()

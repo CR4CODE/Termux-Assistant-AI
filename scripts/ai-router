@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""ai-router — маршрутизация задач по типу.
+
+Читает задачу, определяет тип, выполняет:
+- bash-router   — простые команды (ls, df, uptime, ...)
+- intent-router — открыть приложение, позвонить, url
+- ai-router     — сложные задачи через aib-auto (DeepSeek)
+
+Использование:
+  ai-router "открой вк"
+  ai-router "uptime"
+  ai-router "напиши скрипт для X"
+"""
+import sys, os, json, socket, subprocess, time, re
+
+ROOT = "/sdcard/ai-tasker"
+DATA = os.path.expanduser("~/projects/termux-ai-kit/ai-tasker-app/data")
+APPS_JSON = os.path.join(DATA, "apps.json")
+URLS_JSON = os.path.join(DATA, "urls.json")
+AIB_AUTO = os.path.expanduser("~/bin/aib-auto")
+HOST, PORT = "127.0.0.1", 8766
+
+def send_aib(cmd):
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=3)
+        s.sendall((cmd + "\n").encode()); s.close()
+        return True
+    except Exception:
+        return False
+
+def load_apps():
+    try:
+        with open(APPS_JSON) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def load_urls():
+    try:
+        with open(URLS_JSON) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def classify(task):
+    """Возвращает (тип, данные)."""
+    t = task.strip()
+    tl = t.lower()
+
+    # ДЕВ-РЕЖИМ: задачи про разработку APK / игры / приложения
+    dev_keywords = [
+        "сконвертируй в апк", "сделай апк", "собери апк",
+        "создай приложение для android", "сделай приложение андроид",
+        "напиши игру", "сделай игру", "создай игру", "сделай игру",
+        "улучши приложение", "доработай приложение",
+        "добавь в приложение",
+    ]
+    for kw in dev_keywords:
+        if kw in tl:
+            return "dev", t
+
+
+    # 1. Явные префиксы
+    if t.startswith(">>"):
+        return "bash", t[2:].strip()
+    if t.lower().startswith("ai:"):
+        return "ai", t[3:].strip()
+    if t.lower().startswith("open:"):
+        return "intent", ("open", t[5:].strip())
+
+    # 2. Простые bash-команды (первое слово)
+    first = tl.split()[0] if tl.split() else ""
+    bash_cmds = {"ls","df","du","uptime","date","whoami","pwd","free","ps","top",
+                 "cat","head","tail","grep","find","echo","uname","env","unzip",
+                 "curl","wget","ping","mkdir","touch","rm","cp","mv","chmod"}
+    if first in bash_cmds:
+        return "bash", t
+
+    # 3. "открой сайт X" → URL
+    m = re.match(r"^открой\s+сайт\s+(.+)$", tl)
+    if m:
+        name = m.group(1).strip()
+        urls = load_urls()
+        if name in urls:
+            return "intent", ("url", urls[name])
+        # если это домен
+        if re.match(r"^[a-z0-9.-]+\.[a-z]{2,}", name):
+            return "intent", ("url", "https://" + name)
+        return "intent", ("url", "https://" + name + ".ru")
+
+    # 3-бис. "открой X", "запусти X", "open X"
+    m = re.match(r"^(открой|запусти|open|launch)\s+(.+)$", tl)
+    if m:
+        name = m.group(2).strip()
+        # 1. Проверяем URL-бренды
+        urls = load_urls()
+        if name in urls:
+            return "intent", ("url", urls[name])
+        # 2. Если похоже на домен (google.com, ya.ru)
+        if re.match(r"^[a-z0-9.-]+\.[a-z]{2,}(/.*)?$", name):
+            return "intent", ("url", "https://" + name)
+        # 3. Если содержит "сайт", "url" в имени
+        if "сайт" in name or "site" in name:
+            clean = name.replace("сайт", "").replace("site", "").strip()
+            if re.match(r"^[a-z0-9.-]+\.[a-z]{2,}", clean):
+                return "intent", ("url", "https://" + clean)
+            return "intent", ("url", "https://" + clean + ".ru")
+        # 4. Потом приложения
+        return "intent", ("open", name)
+
+    # 4. "позвони X"
+    m = re.match(r"^позвони\s+(.+)$", tl)
+    if m:
+        return "intent", ("dial", m.group(1).strip())
+
+    # 5. URL
+    if re.match(r"^https?://", t):
+        return "intent", ("url", t)
+
+    # 6. Домены (google.com → https://google.com)
+    if re.match(r"^[a-z0-9.-]+\.[a-z]{2,}(/.*)?$", tl) and " " not in t:
+        return "intent", ("url", "https://" + t)
+
+    # 7. По умолчанию — в DeepSeek
+    return "ai", t
+
+def run_bash(cmd):
+    """Прямое выполнение в bash."""
+    try:
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, timeout=120)
+        out = r.stdout.decode("utf-8", "replace")
+        err = r.stderr.decode("utf-8", "replace")
+        return r.returncode, out + ("\n" + err if err else "")
+    except subprocess.TimeoutExpired:
+        return 124, "(TIMEOUT 120s)"
+    except Exception as e:
+        return 1, f"(ошибка: {e})"
+
+def run_intent(action, arg):
+    """Android intent: открыть приложение / позвонить / открыть url."""
+    apps = load_apps()
+    argl = arg.lower().strip()
+
+    if action == "open":
+        # Ищем пакет по словарю
+        pkg = apps.get(argl)
+        if not pkg:
+            # попробуем частичное совпадение
+            for name, p in apps.items():
+                if name in argl or argl in name:
+                    pkg = p
+                    break
+        if not pkg:
+            return 1, f"(не знаю приложение '{arg}'. Добавь в apps.json)"
+        # Открываем через сервис
+        if send_aib(f"OPEN_APP {pkg}"):
+            return 0, f"Открываю {arg} ({pkg})"
+        return 1, f"(не смог отправить OPEN_APP {pkg})"
+
+    elif action == "dial":
+        # Убираем лишние символы из номера
+        phone = re.sub(r"[^\d+]", "", arg)
+        if not phone:
+            return 1, f"(не понял номер: {arg})"
+        try:
+            r = subprocess.run(["am", "start", "--user", "0",
+                                "-a", "android.intent.action.DIAL", "-d", f"tel:{phone}"],
+                               capture_output=True, timeout=5)
+            return 0, f"Звоню на {phone}"
+        except Exception as e:
+            return 1, f"(ошибка звонка: {e})"
+
+    elif action == "url":
+        import base64 as _b64
+        b64 = _b64.b64encode(arg.encode("utf-8")).decode("ascii")
+        if send_aib(f"OPEN_URL {b64}"):
+            return 0, f"Открываю {arg} (через сервис)"
+        try:
+            subprocess.run(["am", "start", "--user", "0",
+                            "-a", "android.intent.action.VIEW", "-d", arg],
+                           capture_output=True, timeout=5)
+            return 0, f"Открываю {arg} (через am)"
+        except Exception as e:
+            return 1, f"(ошибка открытия url: {e})"
+
+    return 1, f"(неизвестное действие: {action})"
+
+def run_ai(task):
+    """Передача в aib-auto (DeepSeek)."""
+    try:
+        r = subprocess.run([AIB_AUTO, task, "--max", "20"],
+                           capture_output=True, timeout=1800,
+                           cwd=os.path.expanduser("~/projects/ai-sandbox"))
+        return r.returncode, (r.stdout + r.stderr).decode("utf-8", "replace")
+    except subprocess.TimeoutExpired:
+        return 124, "(TIMEOUT 30 минут)"
+    except Exception as e:
+        return 1, f"(ошибка aib-auto: {e})"
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__); sys.exit(0)
+
+    task = sys.argv[1]
+    kind, data = classify(task)
+
+    print(f"[router] задача: {task}")
+    print(f"[router] тип: {kind}")
+    print(f"[router] данные: {data}")
+    print()
+
+    if kind == "bash":
+        rc, out = run_bash(data)
+    elif kind == "intent":
+        action, arg = data
+        rc, out = run_intent(action, arg)
+    elif kind == "ai":
+        rc, out = run_ai(data)
+    elif kind == "dev":
+        # Задача разработки APK — запускаем ai-dev
+        import subprocess
+        ai_dev = os.path.expanduser("~/bin/ai-dev")
+        workdir = os.path.expanduser("~/projects/termux-ai-kit/ai-tasker-app")
+        proc = subprocess.run(
+            [ai_dev, data, "--workdir", workdir, "--max", "30"],
+            capture_output=True, timeout=3600)
+        rc = proc.returncode
+        out = (proc.stdout + proc.stderr).decode("utf-8", "replace")
+    else:
+        rc, out = 1, f"(неизвестный тип: {kind})"
+
+    print(out)
+    print(f"\n[router] rc={rc}")
+    sys.exit(rc)
+
+if __name__ == "__main__":
+    main()

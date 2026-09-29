@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Termux Assistant AI</string>
+    <string name="settings_title">Настройки</string>
+    <string name="input_hint">Что сделать?</string>
+    <string name="btn_run">Выполнить</string>
+    <string name="btn_settings">Настройки</string>
+    <string name="history_title">История задач</string>
+    <string name="empty_history">Пока нет выполненных задач</string>
+    <string name="status_pending">Ожидание</string>
+    <string name="status_running">Выполняется…</string>
+    <string name="status_success">Успешно</string>
+    <string name="status_error">Ошибка</string>
+    <string name="env_check">Проверка окружения</string>
+    <string name="env_ok">Окружение готово</string>
+    <string name="env_fail">Есть проблемы: %1$s</string>
+    <string name="reopen">Открыть</string>
+    <string name="retry">Повторить</string>
+    <string name="delete">Удалить</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="theme_title">Тема</string>    <string name="service_label">AI Bridge Service</string>
+    <string name="service_description">Читает экран и передаёт команды в Termux</string>
+</resources>

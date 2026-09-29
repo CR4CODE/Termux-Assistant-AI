@@ -1,0 +1,36 @@
+# Keystore — НИКОГДА
+*.jks
+*.keystore
+
+# Сборка
+app/build/
+app/lib/android.jar
+*.apk
+*.apk.idsig
+
+# Данные
+*.db
+logs/
+.env
+*.log
+
+# Временное
+*.pre-edit
+*.pre-edit2
+*.bak
+.pre_edit_bak/
+report.md
+patch*.py
+verify*.py
+__pycache__/
+*.pyc
+
+# Release
+release/
+backups/
+termux-apk/
+
+# Прочее
+.DS_Store
+.idea/
+.vscode/

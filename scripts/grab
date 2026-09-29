@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""grab — снимает DUMP DeepSeek и вытаскивает код-блоки.
+usage:
+  grab                 — сразу DUMP (нужен открытый DeepSeek)
+  grab --delay 8       — подождать 8 сек (успей переключиться в DeepSeek)
+  grab --open          — сам открыть DeepSeek через monkey, потом DUMP
+  grab --nodump        — читать последний DUMP из лога
+"""
+import socket, sys, time, os, re, subprocess
+
+HOST, PORT = "127.0.0.1", 8766
+LOG = os.path.expanduser("~/projects/termux-ai-kit/a11y-apk/run/receiver.log")
+DEEPSEEK = "com.deepseek.chat"
+
+def send(cmd):
+    s = socket.create_connection((HOST, PORT), timeout=3)
+    s.sendall((cmd + "\n").encode("utf-8"))
+    s.close()
+
+def wait_dump(timeout=8, require_pkg=None):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(0.3)
+        try:
+            with open(LOG, "rb") as f:
+                data = f.read().decode("utf-8", "replace")
+        except Exception:
+            continue
+        # Ищем последний DUMP с нужным pkg (или вообще последний)
+        if require_pkg:
+            # Разбиваем по DUMP_BEGIN
+            parts = data.split("DUMP_BEGIN")
+            for part in reversed(parts[1:]):
+                if "DUMP_END" not in part: continue
+                header = part[:200]
+                if "DUMP_ROOT pkg=" + require_pkg not in header:
+                    continue
+                # Нашли — извлекаем
+                end_idx = part.find("DUMP_END") + len("DUMP_END")
+                block_text = "DUMP_BEGIN" + part[:end_idx]
+                block = block_text.splitlines()
+                out = []
+                for l in block:
+                    m = re.match(r"^\[\d\d:\d\d:\d\d\] (.*)$", l)
+                    out.append(m.group(1) if m else l)
+                return out
+            # не нашли свежий с pkg — продолжаем ждать
+            continue
+        else:
+            idx = data.rfind("DUMP_END")
+            if idx < 0: continue
+            begin_idx = data.rfind("DUMP_BEGIN", 0, idx)
+            if begin_idx < 0: continue
+            block = data[begin_idx:idx + len("DUMP_END")].splitlines()
+            out = []
+            for l in block:
+                m = re.match(r"^\[\d\d:\d\d:\d\d\] (.*)$", l)
+                out.append(m.group(1) if m else l)
+            return out
+    return None
+
+def parse_lines(lines):
+    parsed = []
+    for line in lines:
+        s = line.strip()
+        if not s: continue
+        if s.startswith(("DUMP_ROOT", "DUMP_BEGIN", "DUMP_END")): continue
+        indent = len(line) - len(line.lstrip(" "))
+        m_text = re.search(r'text="((?:[^"\\]|\\.)*)"', line)
+        text = m_text.group(1) if m_text else ""
+        text = text.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+        parsed.append((indent, text, line))
+    return parsed
+
+def extract_blocks(parsed):
+    blocks = []
+    for i, (ind, txt, raw) in enumerate(parsed):
+        if txt != "Копировать": continue
+        if "TextView" not in raw: continue
+        # язык — ищем выше в пределах 6 строк непустой текст
+        lang = "?"
+        for j in range(max(0, i - 6), i):
+            t = parsed[j][1]
+            if t and t != "Копировать" and re.match(r"^[a-zA-Z0-9_+#-]{1,20}$", t):
+                lang = t
+        # код — TextView после, на indent = ind - 4
+        container_indent = ind - 4
+        code_text = None
+        for j in range(i + 1, len(parsed)):
+            pj_ind, pj_txt, pj_raw = parsed[j]
+            if pj_ind < container_indent and pj_txt:
+                break
+            if pj_ind == container_indent and "TextView" in pj_raw and pj_txt:
+                code_text = pj_txt
+                break
+        if code_text is not None:
+            blocks.append((lang, code_text))
+    return blocks
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    do_dump = "--nodump" not in args
+    require_pkg = "com.deepseek.chat" if "--deepseek" in args else None
+    if "--open" in args:
+        subprocess.run(["monkey", "-p", DEEPSEEK, "-c", "android.intent.category.LAUNCHER", "1"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(3)
+    if "--delay" in args:
+        n = int(args[args.index("--delay") + 1])
+        print(f">>> жду {n} сек, переключись в DeepSeek на код-блок")
+        time.sleep(n)
+    if do_dump:
+        send("DUMP")
+    lines = wait_dump(timeout=8, require_pkg=require_pkg)
+    if not lines:
+        print("FAIL: не дождался DUMP"); sys.exit(1)
+    pkg = next((l for l in lines if l.startswith("DUMP_ROOT")), "")
+    print(f">>> {pkg}")
+    if DEEPSEEK not in pkg:
+        print(f"!!! DUMP снят не с DeepSeek, а с {pkg}.")
+        print("    Запусти так: grab --delay 8  и быстро переключись в DeepSeek.")
+        sys.exit(3)
+    blocks = extract_blocks(parse_lines(lines))
+    if not blocks:
+        print(">>> Код-блоки не найдены. Все text= строки из DUMP:")
+        for (ind, txt, raw) in parse_lines(lines):
+            if txt: print(" " * (ind // 2) + f'"{txt[:100]}"')
+        sys.exit(2)
+    import hashlib
+    print(f">>> Найдено код-блоков: {len(blocks)}")
+    for i, (lang, code) in enumerate(blocks):
+        h = hashlib.sha256(code.encode("utf-8")).hexdigest()[:12]
+        print(f"--- блок {i+1} [{lang}] ({len(code)} симв.) hash={h} ---")
+        print(code)
+    last_code = blocks[-1][1]
+    last_hash = hashlib.sha256(last_code.encode("utf-8")).hexdigest()[:12]
+    with open(os.path.expanduser("~/last_code_block"), "w") as f:
+        f.write(last_code)
+    with open(os.path.expanduser("~/last_code_hash"), "w") as f:
+        f.write(last_hash)
+    print(f">>> последний блок сохранён в ~/last_code_block (hash={last_hash})")

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0F1115</color>
+    <color name="bg_card">#1A1D23</color>
+    <color name="bg_input">#232730</color>
+    <color name="text_primary">#E6E8EB</color>
+    <color name="text_secondary">#8B919A</color>
+    <color name="accent">#4C8DFF</color>
+    <color name="accent_pressed">#3B6FD9</color>
+    <color name="success">#4CAF50</color>
+    <color name="error">#E5484D</color>
+    <color name="divider">#2A2F3A</color>
+</resources>

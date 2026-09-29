@@ -1,0 +1,469 @@
+#!/usr/bin/env python3
+"""aib-auto — автономный вайбкодинг-цикл.
+
+usage:
+  aib-auto "задача"                — создать проект в sandbox и решить
+  aib-auto "задача" --workdir PATH — работать в реальном каталоге (с автобэкапом)
+  aib-auto "задача" --max 60       — макс итераций (по умолчанию 40)
+  aib-auto "задача" --errors 2     — макс подряд ошибок (по умолчанию 3)
+"""
+import socket, sys, os, re, subprocess, time, hashlib, base64
+
+HOST, PORT = "127.0.0.1", 8766
+LOG = os.path.expanduser("~/projects/termux-ai-kit/a11y-apk/run/receiver.log")
+PROMPT_FILE = os.environ.get("AIB_PROMPT_FILE", os.path.expanduser("~/.aib/auto-prompt.txt"))
+DEEPSEEK = "com.deepseek.chat"
+SANDBOX_ROOT = os.path.expanduser("~/projects/ai-sandbox")
+MAX_TOTAL_SECONDS = 1800  # 30 минут максимум на всю задачу
+
+DANGEROUS = [
+    r"\brm\s+-rf\s+/\s*$", r"\brm\s+-rf\s+/\s", r"\brm\s+-rf\s+~",
+    r"\bmkfs\.", r"\bdd\s+.*of=/dev/", r"\bsudo\b", r"\bsu\s+-c",
+    r"\bshutdown\b", r"\breboot\b", r"\bmount\b",
+    r">\s*/system", r">\s*/data/", r">\s*/vendor",
+    r"piar-bot", r"/bin/aib", r"/bin/aictl", r"/bin/ai-cycle", r"/bin/grab",
+    r"~/.termux", r"~/.aib", r"/keys/",
+    r"receiver\.py", r"keystore",
+]
+
+def send(cmd):
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=3)
+        s.sendall((cmd + "\n").encode("utf-8")); s.close()
+        return True
+    except Exception:
+        return False
+
+def log_size():
+    try: return os.path.getsize(LOG)
+    except OSError: return 0
+
+def read_since(off):
+    try:
+        with open(LOG, "rb") as f:
+            f.seek(off); return f.read().decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+def dump(timeout=6):
+    off = log_size()
+    send("DUMP")
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        time.sleep(0.3)
+        d = read_since(off)
+        if "DUMP_END" not in d: continue
+        idx = d.rfind("DUMP_END")
+        begin = d.rfind("DUMP_BEGIN", 0, idx)
+        if begin < 0: continue
+        return [re.sub(r"^\[\d\d:\d\d:\d\d\] ", "", l)
+                for l in d[begin:idx+len("DUMP_END")].splitlines()]
+    return None
+
+def parse_state(lines):
+    st = {"pkg": None, "edittext": None, "otpravit": None, "raw": lines}
+    if not lines: return st
+    for l in lines:
+        if "DUMP_ROOT pkg=" in l and st["pkg"] is None:
+            st["pkg"] = l.split("DUMP_ROOT pkg=")[1].strip()
+    for l in lines:
+        if "EditText" in l and "text=" in l:
+            m = re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if not m: continue
+            x1, y1, x2, y2 = map(int, m.groups())
+            if x2 - x1 < 100: continue
+            mt = re.search(r'text="((?:[^"\\]|\\.)*)"', l)
+            st["edittext"] = mt.group(1).replace("\\n", "\n").replace('\\"', '"') if mt else ""
+    for l in lines:
+        if 'desc="Отправить"' in l:
+            m = re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if m:
+                x1, y1, x2, y2 = map(int, m.groups())
+                st["otpravit"] = ((x1+x2)//2, (y1+y2)//2)
+    return st
+
+def snap(): return parse_state(dump())
+
+def wait_for(pred, timeout=15, poll=0.7, label="?"):
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        s = snap()
+        try:
+            if pred(s): return s
+        except Exception: pass
+        time.sleep(poll)
+    return None
+
+def extract_blocks(lines):
+    parsed = []
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith(("DUMP_ROOT", "DUMP_BEGIN", "DUMP_END")): continue
+        indent = len(line) - len(line.lstrip(" "))
+        m = re.search(r'text="((?:[^"\\]|\\.)*)"', line)
+        text = m.group(1).replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\") if m else ""
+        parsed.append((indent, text, line))
+    blocks = []
+    for i, (ind, txt, raw) in enumerate(parsed):
+        if txt != "Копировать" or "TextView" not in raw: continue
+        ci = ind - 4
+        code, y = None, 0
+        for j in range(i+1, len(parsed)):
+            pj, pt, pr = parsed[j]
+            if pj < ci and pt: break
+            if pj == ci and "TextView" in pr and pt:
+                code = pt
+                m = re.search(r"\[(\d+),(\d+),", pr)
+                if m: y = int(m.group(2))
+                break
+        if code is not None:
+            blocks.append({"code": code, "y": y})
+    return blocks
+
+def extract_last_assistant_text(lines):
+    if not lines: return ""
+    cands = []
+    for l in lines:
+        if "TextView" in l and "text=" in l:
+            m = re.search(r'text="((?:[^"\\]|\\.)*)"', l)
+            if m:
+                t = m.group(1).replace("\\n", "\n").replace('\\"', '"')
+                if len(t) > 20:
+                    cands.append(t)
+    return cands[-1] if cands else ""
+
+def find_otpravit_coord():
+    """Динамический поиск кнопки Отправить в DeepSeek."""
+    import re as _re
+    send("DUMP"); time.sleep(1.5)
+    try:
+        with open(LOG, "rb") as f:
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except Exception:
+        return None, None
+    # Берём свежий DUMP
+    start = 0
+    for i in range(len(lines) - 1, -1, -1):
+        if "DUMP_BEGIN" in lines[i]:
+            start = i; break
+    for l in lines[start:]:
+        if 'desc="Отправить"' in l:
+            m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if m:
+                x = (int(m.group(1)) + int(m.group(3))) // 2
+                y = (int(m.group(2)) + int(m.group(4))) // 2
+                return x, y
+    return None, None
+
+
+def send_text_to_deepseek(text):
+    """Отправка текста в DeepSeek. Динамический поиск кнопки."""
+    if len(text) > 7000:
+        text = text[:7000] + "\n...[обрезано]"
+    import base64 as _b
+    b64 = _b.b64encode(text.encode("utf-8")).decode("ascii")
+
+    # 1. Тапаем в поле ввода
+    send("CLICK 537 2055")
+    time.sleep(1.2)
+
+    # 2. Ставим текст
+    send(f"SETTEXT {b64}")
+    time.sleep(1.5)
+
+    # 3. Динамически ищем кнопку Отправить (3 попытки)
+    for attempt in range(3):
+        ox, oy = find_otpravit_coord()
+        if ox is not None and oy > 1000:
+            send(f"CLICK {ox} {oy}")
+            time.sleep(1.5)
+            return True
+        time.sleep(1)
+
+    return False
+
+
+def is_dangerous(code):
+    for p in DANGEROUS:
+        if re.search(p, code, re.MULTILINE):
+            return p
+    return None
+
+def code_hash(c): return hashlib.sha256(c.encode("utf-8")).hexdigest()[:16]
+
+def ensure_new_chat():
+    send(f"OPEN_APP {DEEPSEEK}")
+    wait_for(lambda s: s["pkg"] == DEEPSEEK, timeout=15, label="DeepSeek")
+    time.sleep(1)
+    send("CLICK 1009 179")
+    time.sleep(2.5)
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        print(__doc__); sys.exit(0)
+    task = args[0]
+    max_iter = 40
+    max_errors = 3
+    workdir = None
+    if "--max" in args: max_iter = int(args[args.index("--max") + 1])
+    if "--errors" in args: max_errors = int(args[args.index("--errors") + 1])
+    if "--workdir" in args:
+        workdir = os.path.expanduser(args[args.index("--workdir") + 1])
+
+    ts = time.strftime("%Y%m%d-%H%M%S")
+
+    if workdir:
+        # РЕЖИМ РАБОТЫ НАД РЕАЛЬНЫМ ПРОЕКТОМ
+        if not os.path.isdir(workdir):
+            print(f"!!! Каталог не существует: {workdir}"); sys.exit(1)
+        sandbox = workdir
+        os.chdir(sandbox)
+        print(f">>> РЕЖИМ РАЗРАБОТКИ в {sandbox}")
+
+        # АВТОБЭКАП перед стартом
+        bk = os.path.expanduser(f"~/backups/auto-dev-{ts}")
+        os.makedirs(bk, exist_ok=True)
+        import shutil as _sh
+        for item in os.listdir(workdir):
+            if item in ("build", ".git", "__pycache__"):
+                continue
+            src = os.path.join(workdir, item)
+            dst = os.path.join(bk, item)
+            try:
+                if os.path.isdir(src):
+                    _sh.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    _sh.copy2(src, dst)
+            except Exception as e:
+                print(f"  ! не забэкапил {item}: {e}")
+        print(f">>> АВТОБЭКАП: {bk}")
+    else:
+        sandbox = os.path.join(SANDBOX_ROOT, ts)
+        os.makedirs(sandbox, exist_ok=True)
+        os.chdir(sandbox)
+        print(f">>> Sandbox: {sandbox}")
+
+    with open(PROMPT_FILE) as f:
+        system_prompt = f.read()
+
+    print(">>> Открываю DeepSeek и создаю новый чат")
+    ensure_new_chat()
+
+    full = system_prompt + "\n\nЗАДАЧА:\n" + task
+    if not send_text_to_deepseek(full):
+        print("!!! Не удалось отправить задачу"); sys.exit(1)
+    print(">>> Задача отправлена")
+
+    seen = set()
+    done_seen_count = 0
+    error_streak = 0
+    stuck_streak = 0      # сколько раз подряд результат одинаковый
+    last_result_hash = None
+    iteration = 0
+    log_lines = []
+
+    task_start_time = time.time()
+
+    while iteration < max_iter:
+        iteration += 1
+
+        total_elapsed = time.time() - task_start_time
+        if total_elapsed > MAX_TOTAL_SECONDS:
+            print(f"\n!!! АБСОЛЮТНЫЙ ТАЙМАУТ {MAX_TOTAL_SECONDS}с — прерываю")
+            task_success = False
+            failure_reason = f"Таймаут задачи ({int(total_elapsed)}с)"
+            break
+
+        print(f"\n>>> ИТЕРАЦИЯ {iteration}/{max_iter} (прошло {int(total_elapsed)}с)")
+
+        # Ждём: пока DeepSeek генерирует — кнопки Отправить нет.
+        # Различаем «думает» (кнопки нет) и «закончил» (кнопка вернулась).
+        t_start = time.time()
+        t_last_has_otp = 0
+        block = None
+        done_signal = False
+        last_tick = 0
+
+        while True:
+            time.sleep(2)
+            elapsed = time.time() - t_start
+
+            # Живой прогресс каждые 8 секунд
+            if time.time() - last_tick > 8:
+                print(f"     ... ждём блок ({int(elapsed)}с)", flush=True)
+                last_tick = time.time()
+
+            # Абсолютный таймаут 90 секунд
+            if elapsed > 60:
+                print("     timeout 60 сек — выхожу")
+                break
+
+            lines = dump(timeout=5)
+            if not lines: continue
+            st = parse_state(lines)
+            if st["pkg"] != DEEPSEEK: continue
+
+            has_otp = bool(st.get("otpravit"))
+
+            # Если кнопка есть — DeepSeek закончил отвечать
+            if has_otp:
+                t_last_has_otp = time.time()
+
+            # Признак ГОТОВО: точное совпадение в любом TextView
+            done_count = 0
+            for _l in lines:
+                if "TextView" in _l:
+                    _m = re.search(r'text="((?:[^"\\]|\\.)*)"', _l)
+                    if _m:
+                        _t = _m.group(1).replace("\\n", "\n").strip().upper()
+                        if _t == "ГОТОВО":
+                            done_count += 1
+            if done_count > done_seen_count:
+                print(f"     ✓ распознан сигнал ГОТОВО (найдено {done_count})")
+                done_signal = True
+                done_seen_count = done_count
+                break
+            done_seen_count = done_count
+
+            # Ищем новый код-блок ВСЕГДА (не зависим от has_otp)
+            blocks = extract_blocks(lines)
+            for b in blocks:
+                h = code_hash(b["code"])
+                if h not in seen:
+                    block = b
+                    seen.add(h)
+                    break
+            if block: break
+
+        if done_signal:
+            print(">>> DeepSeek: ГОТОВО — завершаю"); break
+        if not block:
+            print(">>> Нового блока нет за 60 сек — завершаю"); break
+
+        code = block["code"].strip()
+        print(f">>> Блок ({len(code)} симв.):")
+        for ln in code.splitlines()[:5]: print(f"    {ln}")
+
+        danger = is_dangerous(code)
+        if danger:
+            print(f"!!! Опасно ({danger}) — отказ")
+            send_text_to_deepseek(f"ОТКАЗ: команда содержит {danger}. Используй безопасную альтернативу в sandbox.")
+            error_streak += 1
+            if error_streak >= max_errors:
+                print("!!! Слишком много ошибок"); break
+            continue
+
+        print(">>> Выполняю...")
+        try:
+            r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=120, cwd=sandbox)
+            out = r.stdout.decode("utf-8", "replace")
+            err = r.stderr.decode("utf-8", "replace")
+            rc = r.returncode
+        except subprocess.TimeoutExpired:
+            out, err, rc = "", "(TIMEOUT 120s)", 124
+
+        result = (out + ("\n" + err if err else "")).strip() or f"(пустой вывод, rc={rc})"
+        if len(result) > 8000: result = result[:8000] + "\n...[обрезано 8000]"
+
+        print(f"    rc={rc}, {len(result)} симв.")
+        for ln in result.splitlines()[:6]: print(f"      {ln}")
+
+        log_lines.append({"iter": iteration, "code": code, "rc": rc, "result": result})
+
+        # детектор застревания
+        import hashlib as _h
+        cur_hash = _h.sha256((code + "|" + result[:500]).encode()).hexdigest()[:12]
+        if cur_hash == last_result_hash:
+            stuck_streak += 1
+            if stuck_streak >= 3:
+                print(f"!!! Застряли на 3 одинаковых итерациях — прерываю")
+                break
+        else:
+            stuck_streak = 0
+        last_result_hash = cur_hash
+
+        if rc != 0: error_streak += 1
+        else: error_streak = 0
+
+        reply = f"Результат ({rc}):\n```\n{result}\n```"
+        send(f"OPEN_APP {DEEPSEEK}")
+        wait_for(lambda s: s["pkg"] == DEEPSEEK, timeout=15, label="DeepSeek")
+        if not send_text_to_deepseek(reply):
+            print("!!! Не отправил результат"); break
+
+        if error_streak >= max_errors:
+            print(f"!!! {max_errors} ошибок подряд"); break
+
+    # === ОПРЕДЕЛЯЕМ РЕАЛЬНЫЙ СТАТУС ===
+    # Если DeepSeek ни разу не выполнил команду ИЛИ все команды были "осмотр окружения" — это провал
+    task_success = True
+    failure_reason = None
+
+    if len(log_lines) == 0:
+        task_success = False
+        failure_reason = "DeepSeek не выполнил ни одной команды"
+    else:
+        # Считаем сколько команд РЕАЛЬНО меняли файлы (cat > file, cp, mv, python3 patch.py)
+        productive = 0
+        for L in log_lines:
+            code = L["code"]
+            if any(kw in code for kw in ["cat > ", "cat >>", "python3 patch", "python3 /tmp/patch",
+                                          "cp ", "mv ", "echo '", 'echo "', "tee "]):
+                productive += 1
+        # Если за всё время только осмотр (ls, cat без >, which, pwd, pip list) — фиаско
+        if productive == 0 and len(log_lines) >= 3:
+            task_success = False
+            failure_reason = f"DeepSeek осмотрел окружение ({len(log_lines)} команд), но НИЧЕГО не создал"
+
+    # Проверяем свежий APK для dev-задач
+    if task_success and workdir:
+        import glob
+        apks = sorted(glob.glob("/sdcard/Download/ai-tasker-build-*.apk"), key=os.path.getmtime, reverse=True)
+        if apks:
+            apk_age = time.time() - os.path.getmtime(apks[0])
+            if apk_age > 600:  # старше 10 минут
+                task_success = False
+                failure_reason = f"APK не обновился за время задачи ({int(apk_age)}с назад)"
+
+    print(f"\n>>> РЕАЛЬНЫЙ СТАТУС: {'success' if task_success else 'FAILED'}")
+    if not task_success:
+        print(f">>> Причина: {failure_reason}")
+
+    report = os.path.join(sandbox, "report.md")
+    with open(report, "w") as f:
+        f.write(f"# AI Vibe-Coding Report\n\n")
+        f.write(f"**Задача:** {task}\n\n**Sandbox:** `{sandbox}`\n\n")
+        f.write(f"**Итераций:** {len(log_lines)}\n\n")
+        for L in log_lines:
+            f.write(f"### Итерация {L['iter']} (rc={L['rc']})\n\n")
+            f.write(f"```bash\n{L['code']}\n```\n\n")
+            f.write(f"**Результат:**\n```\n{L['result'][:1500]}\n```\n\n")
+
+    # Уведомление в шторку
+    try:
+        subprocess.run(
+            ["termux-notification", "-t", "AI Vibe-Coding",
+             "-c", f"Готово! Итераций: {len(log_lines)}. {task[:60]}",
+             "--priority", "default", "--id", "aib-auto-done"],
+            timeout=3, capture_output=True)
+    except Exception:
+        pass
+
+    print("\n" + "=" * 60)
+    if task_success:
+        print(f">>> ГОТОВО. Итераций: {len(log_lines)}")
+    else:
+        print(f">>> ПРОВАЛ. Итераций: {len(log_lines)}")
+        print(f">>> ПРИЧИНА: {failure_reason}")
+    print(f">>> Sandbox: {sandbox}")
+    print(f">>> Отчёт: {report}")
+    print(">>> Файлы в sandbox:")
+    for root, dirs, files in os.walk(sandbox):
+        for fn in files:
+            p = os.path.join(root, fn)
+            sz = os.path.getsize(p)
+            print(f"    {os.path.relpath(p, sandbox)}  ({sz} байт)")
+
+if __name__ == "__main__":
+    main()

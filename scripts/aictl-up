@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""aictl-up — поднять всё после перезапуска Termux."""
+import os, sys, time, subprocess, socket
+
+RUN = os.path.expanduser("~/projects/termux-ai-kit/a11y-apk/run")
+
+def is_port_ok(p):
+    try:
+        s = socket.create_connection(("127.0.0.1", p), timeout=1)
+        s.close(); return True
+    except Exception:
+        return False
+
+def is_proc(pattern):
+    try:
+        r = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True)
+        return bool(r.stdout.strip())
+    except Exception:
+        return False
+
+print("=== aictl-up ===")
+
+# 1. receiver
+if is_port_ok(8765) and is_proc("receiver.py"):
+    print("✓ receiver уже работает")
+else:
+    print(">>> запускаю receiver.py")
+    subprocess.Popen(["nohup", "python3", "-u", os.path.join(RUN, "receiver.py")],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     cwd=RUN, start_new_session=True)
+    time.sleep(2)
+    try:
+        r = subprocess.run(["pgrep", "-f", "receiver.py"], capture_output=True, text=True)
+        pid = r.stdout.strip().split("\n")[-1] if r.stdout.strip() else None
+        if pid:
+            open(os.path.join(RUN, "receiver.pid"), "w").write(pid)
+            print(f"  PID={pid}")
+    except Exception as e:
+        print(f"  ошибка: {e}")
+
+# 2. watchdog
+if is_proc("aib-watchdog"):
+    print("✓ watchdog уже работает")
+else:
+    print(">>> запускаю watchdog")
+    subprocess.Popen(["nohup", os.path.expanduser("~/bin/aib-watchdog"), "15"],
+                     stdout=open(os.path.join(RUN, "watchdog.log"), "a"),
+                     stderr=subprocess.STDOUT, start_new_session=True)
+    time.sleep(1)
+    print("  запущен")
+
+# 3. Проверка портов
+print()
+for p in (8765, 8766):
+    print(f"  port {p}: {'OK' if is_port_ok(p) else 'FAIL'}")
+
+print()
+print("=== если port 8766 FAIL ===")
+print("  → перезапусти a11y-сервис: Настройки → Спец. возможности → AI Bridge выкл/вкл")

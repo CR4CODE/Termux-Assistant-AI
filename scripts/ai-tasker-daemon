@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""ai-tasker-daemon — следит за /sdcard/ai-tasker/inbox/ и выполняет задачи.
+
+Формат входящего файла: inbox/task-<id>.txt
+Содержимое: одна строка — текст задачи для aictl auto
+
+Результат: outbox/task-<id>.json
+{"id": "...", "status": "success|error|running", "started": "...", "finished": "...",
+ "task": "...", "output": "...", "exit_code": 0}
+"""
+import os, sys, time, json, subprocess, socket, re, shutil
+from datetime import datetime
+
+ROOT = "/sdcard/ai-tasker"
+INBOX = os.path.join(ROOT, "inbox")
+OUTBOX = os.path.join(ROOT, "outbox")
+DONE = os.path.join(ROOT, "done")
+LOGS = os.path.join(ROOT, "logs")
+ROUTER = os.path.expanduser("~/bin/ai-router")
+AIB_AUTO = os.path.expanduser("~/bin/aib-auto")
+AI_DEV = os.path.expanduser("~/bin/ai-dev")
+GRAB = os.path.expanduser("~/bin/grab")  # на случай прямого вызова
+WORKSPACE = os.path.expanduser("~/projects/ai-sandbox")
+
+for d in (INBOX, OUTBOX, DONE, LOGS):
+    os.makedirs(d, exist_ok=True)
+
+
+def now_iso():
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def log(msg):
+    line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+    print(line, flush=True)
+    try:
+        with open(os.path.join(LOGS, "daemon.log"), "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def write_result(task_id, data):
+    path = os.path.join(OUTBOX, f"task-{task_id}.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.rename(tmp, path)  # атомарная замена
+    log(f"результат записан: {path}")
+
+
+
+def run_copy_exec(task_id):
+    """Выполнить код, извлечённый из последнего DUMP через grab --nodump."""
+    started = now_iso()
+    log(f"=== COPY_EXEC {task_id}")
+
+    write_result(task_id, {
+        "id": task_id,
+        "status": "running",
+        "started": started,
+        "finished": None,
+        "task": "copy_exec:",
+        "output": "",
+        "exit_code": None,
+    })
+
+    # 1. Извлечь код через grab --nodump
+    try:
+        r = subprocess.run([GRAB, "--nodump", "--deepseek"], capture_output=True, timeout=20)
+        out = r.stdout.decode("utf-8", "replace")
+    except Exception as e:
+        out = ""
+
+    if "Найдено код-блоков" not in out:
+        log(f"COPY_EXEC: код-блок не найден")
+        write_result(task_id, {
+            "id": task_id, "status": "failed",
+            "started": started, "finished": now_iso(),
+            "task": "copy_exec:",
+            "output": "(код-блок не найден в последнем DUMP)",
+            "exit_code": 1,
+        })
+        return
+
+    # 2. Извлечь последний блок
+    import re as _re
+    m = _re.search(r"--- блок \d+ \[(.*?)\] \((\d+) симв\.\) hash=[0-9a-f]+ ---\n(.+?)(?=\n--- блок|\n>>> |\Z)", out, _re.DOTALL)
+    if not m:
+        log("COPY_EXEC: не смог распарсить блок")
+        write_result(task_id, {
+            "id": task_id, "status": "failed",
+            "started": started, "finished": now_iso(),
+            "task": "copy_exec:",
+            "output": "(не смог распарсить блок)",
+            "exit_code": 1,
+        })
+        return
+
+    code = m.group(3).strip()
+    log(f"COPY_EXEC code={code[:60]!r}")
+
+    # 3. Выполнить
+    try:
+        r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=120)
+        stdout = r.stdout.decode("utf-8", "replace")
+        stderr = r.stderr.decode("utf-8", "replace")
+        rc = r.returncode
+        result = stdout + ("\n" + stderr if stderr else "")
+        result = result.strip() or f"(пустой вывод, rc={rc})"
+    except subprocess.TimeoutExpired:
+        result, rc = "(TIMEOUT 120s)", 124
+    except Exception as e:
+        result, rc = f"(ошибка: {e})", 1
+
+    if len(result) > 6000:
+        result = result[:6000] + "\n...[обрезано 6000]"
+
+    write_result(task_id, {
+        "id": task_id,
+        "status": "success" if rc == 0 else "error",
+        "started": started,
+        "finished": now_iso(),
+        "task": "copy_exec:",
+        "output": result,
+        "exit_code": rc,
+    })
+    log(f"COPY_EXEC {task_id}: rc={rc}, len={len(result)}")
+
+
+def run_auto(task_id, code):
+    """Прямое выполнение кода из буфера — без DeepSeek и роутера."""
+    started = now_iso()
+    log(f"=== AUTO {task_id}: {code[:80]}")
+
+    # Пишем статус running
+    write_result(task_id, {
+        "id": task_id,
+        "status": "running",
+        "started": started,
+        "finished": None,
+        "task": "auto:" + code,
+        "output": "",
+        "exit_code": None,
+    })
+
+    try:
+        r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=120)
+        out = r.stdout.decode("utf-8", "replace")
+        err = r.stderr.decode("utf-8", "replace")
+        rc = r.returncode
+        result = out + ("\n" + err if err else "")
+        result = result.strip() or f"(пустой вывод, rc={rc})"
+    except subprocess.TimeoutExpired:
+        result, rc = "(TIMEOUT 120s)", 124
+    except Exception as e:
+        result, rc = f"(ошибка: {e})", 1
+
+    if len(result) > 6000:
+        result = result[:6000] + "\n...[обрезано 6000]"
+
+    finished = now_iso()
+    write_result(task_id, {
+        "id": task_id,
+        "status": "success" if rc == 0 else "error",
+        "started": started,
+        "finished": finished,
+        "task": "auto:" + code,
+        "output": result,
+        "exit_code": rc,
+    })
+    log(f"AUTO {task_id}: rc={rc}, len={len(result)}")
+
+
+def run_task(task_id, task_text):
+    """Запускает aictl auto и пишет результат в outbox."""
+    started = now_iso()
+    result = {
+        "id": task_id,
+        "status": "running",
+        "started": started,
+        "finished": None,
+        "task": task_text,
+        "output": "",
+        "exit_code": None,
+    }
+    write_result(task_id, result)
+
+    log(f"=== задача {task_id}: {task_text[:80]}")
+
+    # Показываем прогресс через уведомление
+    try:
+        subprocess.run(
+            ["termux-notification", "-t", "Termux Assistant AI",
+             "-c", f"Выполняю: {task_text[:60]}", "--id", f"ai-task-{task_id}",
+             "--priority", "default"],
+            timeout=3, capture_output=True)
+    except Exception:
+        pass
+
+    # Запускаем aictl auto в sandbox (не в проекте!) — безопасно
+    try:
+        # Если задача с префиксом dev: → ai-dev (разработка APK)
+        if task_text.startswith("dev:"):
+            dev_task = task_text[4:].strip()
+            print(f"[ai-dev] задача разработки: {dev_task}", flush=True)
+            proc = subprocess.run(
+                [AI_DEV, dev_task, "--max", "30"],
+                capture_output=True, timeout=3600, cwd=WORKSPACE)
+        else:
+            proc = subprocess.run(
+                [ROUTER, task_text],
+                capture_output=True, timeout=1800, cwd=WORKSPACE)
+        stdout = proc.stdout.decode("utf-8", "replace")
+        stderr = proc.stderr.decode("utf-8", "replace")
+        rc = proc.returncode
+        combined = (stdout + ("\n" + stderr if stderr else "")).strip()
+    except subprocess.TimeoutExpired:
+        combined = "(TIMEOUT 30 минут)"
+        rc = 124
+    except Exception as e:
+        combined = f"(ошибка запуска: {e})"
+        rc = 1
+
+    # Обрезаем длинный вывод
+    if len(combined) > 8000:
+        combined = combined[:8000] + "\n...[обрезано 8000 симв.]"
+
+    finished = now_iso()
+    is_failure = ">>> ПРОВАЛ." in combined or ">>> ПРИЧИНА:" in combined
+    if is_failure:
+        status = "failed"
+    else:
+        status = "success" if rc == 0 else "error"
+
+    result = {
+        "id": task_id,
+        "status": status,
+        "started": started,
+        "finished": finished,
+        "task": task_text,
+        "output": combined,
+        "exit_code": rc,
+    }
+    write_result(task_id, result)
+
+    # Уведомление о завершении
+    try:
+        emoji = "✓" if rc == 0 else "✗"
+        summary = combined.splitlines()[-1][:70] if combined else "(пусто)"
+        subprocess.run(
+            ["termux-notification", "-t", f"{emoji} Termux Assistant AI",
+             "-c", f"{task_text[:50]}\n{summary}",
+             "--id", f"ai-task-{task_id}", "--priority", "default"],
+            timeout=3, capture_output=True)
+    except Exception:
+        pass
+
+    log(f"задача {task_id}: rc={rc}, status={status}")
+
+
+def main():
+    log(f"=== ai-tasker-daemon запущен ===")
+    log(f"INBOX: {INBOX}")
+    log(f"OUTBOX: {OUTBOX}")
+
+    # Текущий pid
+    pid_file = os.path.expanduser("~/.ai-tasker.pid")
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
+
+    processed = set()
+
+    while True:
+        try:
+            # Сканируем inbox
+            for fname in sorted(os.listdir(INBOX)):
+                if not fname.startswith("task-") or not fname.endswith(".txt"):
+                    continue
+                if fname in processed:
+                    continue
+
+                fpath = os.path.join(INBOX, fname)
+                try:
+                    with open(fpath) as f:
+                        task_text = f.read().strip()
+                except Exception as e:
+                    log(f"не смог прочитать {fname}: {e}")
+                    continue
+
+                if not task_text:
+                    log(f"пустая задача {fname}, пропускаю")
+                    processed.add(fname)
+                    continue
+
+                # COPY_EXEC: код из последнего DUMP
+                if task_text.startswith("copy_exec:"):
+                    task_id = fname[len("task-"):-len(".txt")]
+                    processed.add(fname)
+                    try:
+                        run_copy_exec(task_id)
+                    except Exception as e:
+                        log(f"ошибка run_copy_exec {task_id}: {e}")
+                    try:
+                        shutil.move(fpath, os.path.join(DONE, fname))
+                    except Exception:
+                        pass
+                    continue
+
+                # AUTO: прямое выполнение кода из буфера
+                if task_text.startswith("auto:"):
+                    auto_code = task_text[5:].strip()
+                    task_id = fname[len("task-"):-len(".txt")]
+                    processed.add(fname)
+                    try:
+                        run_auto(task_id, auto_code)
+                    except Exception as e:
+                        log(f"ошибка run_auto {task_id}: {e}")
+                    try:
+                        shutil.move(fpath, os.path.join(DONE, fname))
+                    except Exception:
+                        pass
+                    continue
+
+                task_id = fname[len("task-"):-len(".txt")]
+
+                # Переносим в done/ чтобы не обработать дважды
+                processed.add(fname)
+
+                try:
+                    run_task(task_id, task_text)
+                except Exception as e:
+                    log(f"ошибка обработки {task_id}: {e}")
+
+                # Копируем обработанный файл в done/ и удаляем из inbox
+                try:
+                    shutil.copy2(fpath, os.path.join(DONE, fname))
+                    os.unlink(fpath)
+                except Exception as _e:
+                    log(f"не смог переместить {fname} в done: {_e}")
+
+            time.sleep(1)
+        except KeyboardInterrupt:
+            log("=== остановлен по Ctrl+C ===")
+            break
+        except Exception as e:
+            log(f"ошибка в цикле: {e}")
+            time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+import sys, socket, base64, os
+HOST, PORT = "127.0.0.1", 8766
+LOG = os.path.expanduser("~/projects/termux-ai-kit/a11y-apk/run/receiver.log")
+
+def send(cmd: str):
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=3)
+        s.sendall((cmd + "\n").encode("utf-8"))
+        s.close()
+        print(f">>> sent: {cmd[:80]}{'...' if len(cmd)>80 else ''}")
+    except Exception as e:
+        print(f">>> FAIL: {e}"); sys.exit(1)
+
+def tail_log(n=30):
+    try:
+        with open(LOG, "rb") as f: data = f.read()
+        for l in data.decode("utf-8","replace").splitlines()[-n:]: print(l)
+    except Exception as e: print(f"(лог: {e})")
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        print("usage: aib <cmd> [args]\n  aib settext <text>  aib clip <text>  aib tap <regex>\n  aib find <regex>    aib click X Y     aib paste\n  aib log [N]   aib ping   aib dump   aib focus   aib back   aib home")
+        sys.exit(0)
+    if args[0] == "log":
+        tail_log(int(args[1]) if len(args) > 1 else 30); sys.exit(0)
+    if args[0] in ("clip", "settext"):
+        text = " ".join(args[1:])
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        send(f"{'SETCLIP' if args[0]=='clip' else 'SETTEXT'} {b64}")
+        sys.exit(0)
+    if args[0] == "tap":
+        send("TAP_TEXT " + " ".join(args[1:])); sys.exit(0)
+    if args[0] == "find":
+        send("FIND " + " ".join(args[1:])); sys.exit(0)
+    if args[0] == "click":
+        send(f"CLICK {args[1]} {args[2]}"); sys.exit(0)
+    if args[0] == "actclick":
+        send("ACT_CLICK " + " ".join(args[1:])); sys.exit(0)
+    if args[0] == "probefield":
+        send("PROBE_FIELD"); sys.exit(0)
+    if args[0] == "tryhard":
+        send("TRY_HARD"); sys.exit(0)
+    if args[0] == "tapfield":
+        send("TAP_FIELD"); sys.exit(0)
+    if args[0] == "focusandtype":
+        text = " ".join(args[1:])
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        send(f"FOCUS_AND_TYPE {b64}"); sys.exit(0)
+    if args[0] == "openurl":
+        import base64 as _b
+        url = " ".join(args[1:])
+        b64 = _b.b64encode(url.encode("utf-8")).decode("ascii")
+        send(f"OPEN_URL {b64}"); sys.exit(0)
+    if args[0] == "openapp":
+        send("OPEN_APP " + args[1]); sys.exit(0)
+    if args[0] == "focus":
+        send("FIND_FOCUS"); sys.exit(0)
+    # маппинг коротких команд в верхний регистр
+    if args[0] in ("dump", "back", "home", "paste", "getclip", "whoami", "ping", "clear_focus"):
+        send(args[0].upper()); sys.exit(0)
+    send(" ".join(args))

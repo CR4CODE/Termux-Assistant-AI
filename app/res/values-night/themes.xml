@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+    <item name="appBg">#FF121212</item>
+    <item name="appBgCard">#FF1E1E1E</item>
+    <item name="appBgInput">#FF2A2A2A</item>
+    <item name="appTextPrimary">#FFECECEC</item>
+    <item name="appTextSecondary">#FFB0B0B0</item>
+    <item name="appAccent">#FF90CAF9</item>
+    <item name="android:windowBackground">?attr/appBg</item>
+    <item name="android:colorAccent">?attr/appAccent</item>
+    <item name="android:textColorPrimary">?attr/appTextPrimary</item>
+    <item name="android:textColorSecondary">?attr/appTextSecondary</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+  </style>
+</resources>
+  <style name="AppTheme_Light" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="appBg">#FFFFFFFF</item>
