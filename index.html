@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Termux Assistant AI — Одна строка. Ты пишешь — она делает.</title>
+
+<meta name="description" content="Открытый AI-ассистент для Android: одна строка — и задача выполнена в Termux. Без root, API-ключей и VPN.">
+<meta name="theme-color" content="#121214">
+<meta property="og:title" content="Termux Assistant AI">
+<meta property="og:description" content="Ты пишешь — она делает. Пока ты живёшь.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='12' fill='%2322c55e'/></svg>">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#121214;
+  --card:#1a1a1d;
+  --text:#e8e5df;
+  --muted:#8a8780;
+  --accent:#22c55e;
+  --accent-soft:rgba(34,197,94,.12);
+  --accent2:#7ba8b8;
+  --accent2-soft:rgba(123,168,184,.12);
+  --border:rgba(232,229,223,.08);
+  --warm:#d4a574;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:Syne,sans-serif;
+  background:
+    radial-gradient(1000px 500px at 80% -10%,rgba(34,197,94,.08),transparent 60%),
+    radial-gradient(800px 400px at 10% 100%,rgba(212,165,116,.05),transparent 60%),
+    var(--bg);
+  color:var(--text);
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{line-height:1.2}
+.mono{font-family:"JetBrains Mono",monospace}
+.gradient-text{
+  background:linear-gradient(100deg,var(--accent),#86efac);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.warm-text{
+  background:linear-gradient(100deg,var(--warm),#f5deb3);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.card-hover{transition:transform .3s,border-color .3s,box-shadow .3s}
+.card-hover:hover{
+  transform:translateY(-4px);
+  border-color:var(--accent);
+  box-shadow:0 8px 32px rgba(34,197,94,.08);
+}
+.pulse-dot{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.15)}}
+.fade-in{animation:fadeIn .8s ease-out both}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.arch-node{transition:all .3s;cursor:pointer}
+.arch-node:hover{filter:drop-shadow(0 0 12px var(--accent))}
+.tab-btn{
+  transition:all .2s;border-bottom:2px solid transparent;
+  background:transparent;border-left:none;border-right:none;border-top:none;
+  color:var(--muted);cursor:pointer;font-family:inherit;font-size:14px;
+  padding:12px 20px;border-radius:8px 8px 0 0;
+}
+.tab-btn:hover{color:var(--text)}
+.tab-btn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-content{display:none}
+.tab-content.active{display:block;animation:fadeIn .4s ease-out}
+::selection{background:var(--accent);color:#121214}
+code{
+  font-family:"JetBrains Mono",monospace;
+  background:rgba(128,128,128,.08);
+  padding:2px 6px;border-radius:4px;font-size:.9em;line-height:1.4;
+}
+.container{max-width:1152px;margin:0 auto;padding:64px 24px}
+
+/* Timeline (Что в планах) */
+.timeline{position:relative;padding-left:32px}
+.timeline::before{
+  content:"";position:absolute;left:7px;top:8px;bottom:8px;
+  width:2px;background:var(--border);
+}
+.timeline-item{position:relative;margin-bottom:24px}
+.timeline-item:last-child{margin-bottom:0}
+.timeline-item::before{
+  content:"";position:absolute;left:-32px;top:6px;
+  width:16px;height:16px;border-radius:50%;
+  background:var(--muted);
+}
+.timeline-item[data-dot="accent"]::before{background:var(--accent)}
+.timeline-item[data-dot="accent2"]::before{background:var(--accent2)}
+.timeline-item[data-dot="warm"]::before{background:var(--warm)}
+
+/* Прокручиваемая схема */
+.arch-scroll{
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    transition-duration:.01ms!important;
+    scroll-behavior:auto!important;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HERO -->
+  <div class="fade-in" style="text-align:center;margin-bottom:80px">
+    <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;margin-bottom:24px;background:var(--accent-soft);border:1px solid var(--accent)">
+      <span class="pulse-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>
+      <span class="mono" style="font-size:12px;color:var(--accent);letter-spacing:.1em">OPEN SOURCE · v1.0 · MIT</span>
+    </div>
+    <h1 style="font-size:clamp(2.5rem,6vw,4.5rem);font-weight:800;margin:0 0 24px;line-height:1.1">
+      Termux<br><span class="gradient-text">Assistant AI</span>
+    </h1>
+    <p style="font-size:clamp(1.1rem,2.5vw,1.5rem);max-width:640px;margin:0 auto 16px;color:var(--muted)">
+      Открытый AI-ассистент для Android. Ты даёшь задачу —
+      <span class="warm-text">он делает всё сам</span>.
+    </p>
+    <p class="mono" style="font-size:14px;margin-bottom:40px;color:var(--muted)">
+      github.com/CR4CODE/Termux-Assistant-AI
+    </p>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:12px">
+      <span style="padding:10px 16px;border-radius:8px;font-size:14px;background:var(--card);border:1px solid var(--border)">
+        <span style="color:var(--accent)">✓</span> Без root
+      </span>
+      <span style="padding:10px 16px;border-radius:8px;font-size:14px;background:var(--card);border:1px solid var(--border)">
+        <span style="color:var(--accent)">✓</span> Без API-ключей
+      </span>
+      <span style="padding:10px 16px;border-radius:8px;font-size:14px;background:var(--card);border:1px solid var(--border)">
+        <span style="color:var(--accent)">✓</span> Без VPN
+      </span>
+      <span style="padding:10px 16px;border-radius:8px;font-size:14px;background:var(--card);border:1px solid var(--border)">
+        <span style="color:var(--accent)">✓</span> Без ADB
+      </span>
+    </div>
+  </div>
+
+  <!-- PHILOSOPHY -->
+  <div class="fade-in" style="margin-bottom:80px;padding:48px;border-radius:16px;background:linear-gradient(135deg,var(--card),rgba(34,197,94,.04));border:1px solid var(--border)">
+    <div class="mono" style="font-size:12px;margin-bottom:12px;color:var(--accent);letter-spacing:.2em">ФИЛОСОФИЯ</div>
+    <blockquote style="font-size:clamp(1.3rem,3vw,2rem);font-weight:600;line-height:1.4;margin:0">
+      «Код, который пишет код. Технология должна работать сама,
+      <span class="gradient-text">пока человек живёт свою жизнь</span>. Не наоборот.»
+    </blockquote>
+  </div>
+
+  <!-- PROBLEM -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">01</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Какую проблему решает</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px">
+      <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:12px;margin-bottom:12px;color:var(--muted)">ОБЫЧНЫЙ ЦИКЛ</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:12px;align-items:center"><span class="mono" style="width:24px;color:var(--muted)">1</span><span>Пишешь задачу → ждёшь</span></div>
+          <div style="display:flex;gap:12px;align-items:center"><span class="mono" style="width:24px;color:var(--muted)">2</span><span>Получаешь код → копируешь</span></div>
+          <div style="display:flex;gap:12px;align-items:center"><span class="mono" style="width:24px;color:var(--muted)">3</span><span>Вставляешь в терминал → запускаешь</span></div>
+          <div style="display:flex;gap:12px;align-items:center"><span class="mono" style="width:24px;color:var(--muted)">4</span><span>Копируешь результат → обратно в чат</span></div>
+          <div style="display:flex;gap:12px;align-items:center"><span class="mono" style="width:24px;color:var(--muted)">5</span><span>Снова пишешь…</span></div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:14px;color:var(--muted)" class="mono">
+          Каждый шаг — вручную
+        </div>
+      </div>
+      <div style="padding:24px;border-radius:16px;background:linear-gradient(180deg,rgba(34,197,94,.06),var(--card));border:1px solid var(--accent)" class="card-hover">
+        <div class="mono" style="font-size:12px;margin-bottom:12px;color:var(--accent)">TERMUX ASSISTANT AI</div>
+        <div style="font-size:48px;margin-bottom:16px;color:var(--accent)">→</div>
+        <p style="font-size:18px;margin:0 0 16px;font-weight:500">
+          <strong>Одна строка.</strong> Нейросеть получает задачу —
+          дальше всё происходит само.
+        </p>
+        <ul style="margin:0;padding:0;list-style:none;font-size:14px;color:var(--muted);display:flex;flex-direction:column;gap:8px">
+          <li><span style="color:var(--accent)">▸</span> Код извлекается с экрана</li>
+          <li><span style="color:var(--accent)">▸</span> Выполняется в Termux</li>
+          <li><span style="color:var(--accent)">▸</span> Результат возвращается в чат</li>
+          <li><span style="color:var(--accent)">▸</span> Ты занимаешься чем угодно</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ARCHITECTURE -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">02</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Архитектура — три слоя</h2>
+    </div>
+    <div class="arch-scroll" style="padding:32px;border-radius:16px;background:var(--card);border:1px solid var(--border);overflow-x:auto">
+      <svg viewBox="0 0 800 420" style="width:100%;min-width:600px;max-height:420px;display:block" role="img" aria-label="Схема архитектуры из трёх слоёв: Android-приложение, Termux-инфраструктура, каналы связи">
+        <defs>
+          <linearGradient id="gradLine" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" style="stop-color:#22c55e;stop-opacity:.6"/>
+            <stop offset="100%" style="stop-color:#22c55e;stop-opacity:.1"/>
+          </linearGradient>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+            <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g class="arch-node">
+          <rect x="40" y="20" width="720" height="90" rx="12" fill="#1a1a1d" stroke="#22c55e" stroke-width="1.5" filter="url(#glow)"/>
+          <text x="60" y="50" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">СЛОЙ 1 · ANDROID-ПРИЛОЖЕНИЕ</text>
+          <text x="60" y="75" fill="#e8e5df" font-family="Syne, sans-serif" font-size="16" font-weight="600">Единый APK</text>
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#8a8780">
+            <text x="280" y="75">UI · a11y Service · Overlay · Tile · Wizard</text>
+          </g>
+        </g>
+        <line x1="400" y1="110" x2="400" y2="150" stroke="url(#gradLine)" stroke-width="2" stroke-dasharray="4,4"/>
+        <text x="410" y="135" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="9">файлы / сокет</text>
+        <g class="arch-node">
+          <rect x="40" y="150" width="720" height="90" rx="12" fill="#1a1a1d" stroke="#7ba8b8" stroke-width="1.5"/>
+          <text x="60" y="180" fill="#7ba8b8" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">СЛОЙ 2 · TERMUX-ИНФРАСТРУКТУРА</text>
+          <text x="60" y="205" fill="#e8e5df" font-family="Syne, sans-serif" font-size="16" font-weight="600">Python-скрипты</text>
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#8a8780">
+            <text x="280" y="195">ai-tasker-daemon · ai-router · aib-auto</text>
+            <text x="280" y="212">ai-dev · aib · grab · ai-cycle</text>
+          </g>
+        </g>
+        <line x1="400" y1="240" x2="400" y2="280" stroke="url(#gradLine)" stroke-width="2" stroke-dasharray="4,4"/>
+        <text x="410" y="265" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="9">loopback</text>
+        <g class="arch-node">
+          <rect x="40" y="280" width="720" height="90" rx="12" fill="#1a1a1d" stroke="#d4a574" stroke-width="1.5"/>
+          <text x="60" y="310" fill="#d4a574" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">СЛОЙ 3 · КАНАЛЫ СВЯЗИ</text>
+          <text x="60" y="335" fill="#e8e5df" font-family="Syne, sans-serif" font-size="16" font-weight="600">Android ↔ Termux</text>
+          <g font-family="JetBrains Mono, monospace" font-size="10" fill="#8a8780">
+            <text x="280" y="325">/sdcard/ai-tasker/{inbox,outbox}</text>
+            <text x="280" y="342">127.0.0.1:8766 · обратный сокет :8765</text>
+          </g>
+        </g>
+        <g font-family="Syne, sans-serif" font-size="11" fill="#8a8780">
+          <text x="775" y="65" text-anchor="end" transform="rotate(-90,775,65)">пользовательский интерфейс</text>
+          <text x="775" y="195" text-anchor="end" transform="rotate(-90,775,195)">автономное выполнение</text>
+          <text x="775" y="325" text-anchor="end" transform="rotate(-90,775,325)">IPC · локально</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- FEATURES / ROUTING -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">03</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Что умеет</h2>
+    </div>
+
+    <div role="tablist" aria-label="Возможности" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:24px;padding:4px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+      <button type="button" role="tab" id="tabbtn-modes"   aria-controls="tab-modes"   aria-selected="true"  tabindex="0"  class="tab-btn active" onclick="switchTab(event,'modes')">Режимы ввода</button>
+      <button type="button" role="tab" id="tabbtn-routing" aria-controls="tab-routing" aria-selected="false" tabindex="-1" class="tab-btn"        onclick="switchTab(event,'routing')">Умная маршрутизация</button>
+      <button type="button" role="tab" id="tabbtn-floating" aria-controls="tab-floating" aria-selected="false" tabindex="-1" class="tab-btn"       onclick="switchTab(event,'floating')">Свободный режим</button>
+      <button type="button" role="tab" id="tabbtn-dev"     aria-controls="tab-dev"     aria-selected="false" tabindex="-1" class="tab-btn"        onclick="switchTab(event,'dev')">Автономная разработка</button>
+    </div>
+
+    <div id="tab-modes" role="tabpanel" aria-labelledby="tabbtn-modes" class="tab-content active">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px">
+        <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;margin-bottom:8px;color:var(--accent)">ГОЛОС</div>
+          <div style="font-size:32px;font-weight:700;margin-bottom:8px">мгновенно</div>
+          <p style="font-size:14px;margin:0 0 16px;color:var(--muted)">«открой вк», «покажи uptime»</p>
+          <div style="width:100%;height:8px;border-radius:999px;background:rgba(128,128,128,.1)"><div style="width:100%;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),#86efac)"></div></div>
+        </div>
+        <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;margin-bottom:8px;color:var(--accent2)">ТЕКСТ</div>
+          <div style="font-size:32px;font-weight:700;margin-bottom:8px">1–2 сек</div>
+          <p style="font-size:14px;margin:0 0 16px;color:var(--muted)">uptime, df -h, ls ~/projects</p>
+          <div style="width:100%;height:8px;border-radius:999px;background:rgba(128,128,128,.1)"><div style="width:70%;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent2),#a8d5e5)"></div></div>
+        </div>
+        <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;margin-bottom:8px;color:var(--warm)">AI-ЗАДАЧА</div>
+          <div style="font-size:32px;font-weight:700;margin-bottom:8px">30–60 сек</div>
+          <p style="font-size:14px;margin:0 0 16px;color:var(--muted)">напиши скрипт X, создай игру</p>
+          <div style="width:100%;height:8px;border-radius:999px;background:rgba(128,128,128,.1)"><div style="width:30%;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--warm),#f5deb3)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-routing" role="tabpanel" aria-labelledby="tabbtn-routing" class="tab-content">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;padding:4px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap">BASH</div>
+          <div style="flex:1"><code>uptime, df -h, ls</code></div>
+          <div style="font-size:14px;color:var(--muted);white-space:nowrap">→ Termux · ~1 сек</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;padding:4px 8px;border-radius:6px;background:var(--accent2-soft);color:var(--accent2);white-space:nowrap">APP</div>
+          <div style="flex:1"><code>открой вк, открой ютуб</code></div>
+          <div style="font-size:14px;color:var(--muted);white-space:nowrap">→ a11y · ~2 сек</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+          <div class="mono" style="font-size:12px;padding:4px 8px;border-radius:6px;background:rgba(212,165,116,.12);color:var(--warm);white-space:nowrap">WEB</div>
+          <div style="flex:1"><code>открой гитхаб, google.com</code></div>
+          <div style="font-size:14px;color:var(--muted);white-space:nowrap">→ браузер · ~2 сек</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:16px;border-radius:12px;background:var(--card);border:1px solid var(--accent)" class="card-hover">
+          <div class="mono" style="font-size:12px;padding:4px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);white-space:nowrap">AI</div>
+          <div style="flex:1"><code>напиши скрипт X, создай игру</code></div>
+          <div style="font-size:14px;color:var(--accent);white-space:nowrap">→ DeepSeek + цикл · 30–60 сек</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-floating" role="tabpanel" aria-labelledby="tabbtn-floating" class="tab-content">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px">
+        <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)">
+          <div class="mono" style="font-size:12px;margin-bottom:16px;color:var(--accent)">СВОБОДНЫЙ РЕЖИМ</div>
+          <ol style="margin:0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:12px">
+            <li>Пишешь задачу в DeepSeek</li>
+            <li>Копируешь код-блок</li>
+            <li>Тапаешь зелёную <span style="color:var(--accent);font-weight:700">●</span> — становится жёлтой</li>
+            <li>Выполняет код, вставляет результат</li>
+            <li>Зеленеет — ты жмёшь «Отправить»</li>
+          </ol>
+        </div>
+        <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)">
+          <div class="mono" style="font-size:12px;margin-bottom:16px;color:var(--muted)">ИНДИКАТОРЫ</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;align-items:center;gap:16px"><span class="pulse-dot" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#22c55e;box-shadow:0 0 12px #22c55e"></span><div><div style="font-weight:600">Готов</div><div style="font-size:13px;color:var(--muted)">ожидает команду</div></div></div>
+            <div style="display:flex;align-items:center;gap:16px"><span class="pulse-dot" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#eab308;box-shadow:0 0 12px #eab308"></span><div><div style="font-weight:600">Работает</div><div style="font-size:13px;color:var(--muted)">выполняет код</div></div></div>
+            <div style="display:flex;align-items:center;gap:16px"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#dc2626;box-shadow:0 0 12px #dc2626"></span><div><div style="font-weight:600">Ошибка</div><div style="font-size:13px;color:var(--muted)">нужно вмешательство</div></div></div>
+          </div>
+          <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
+            Кнопка двигается пальцем · Долгий тап — скрывает
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-dev" role="tabpanel" aria-labelledby="tabbtn-dev" class="tab-content">
+      <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)">
+        <div class="mono" style="font-size:14px;margin-bottom:20px;color:var(--accent)">ai-dev "задача"</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px">
+          <div style="text-align:center;padding:20px;border-radius:12px;background:rgba(34,197,94,.04);border:1px solid var(--border)">
+            <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--muted)">01</div>
+            <div style="font-size:14px;font-weight:500">Читает исходники</div>
+          </div>
+          <div style="text-align:center;padding:20px;border-radius:12px;background:rgba(34,197,94,.04);border:1px solid var(--border)">
+            <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--muted)">02</div>
+            <div style="font-size:14px;font-weight:500">Создаёт патчи</div>
+          </div>
+          <div style="text-align:center;padding:20px;border-radius:12px;background:rgba(34,197,94,.04);border:1px solid var(--border)">
+            <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--muted)">03</div>
+            <div style="font-size:14px;font-weight:500">Применяет</div>
+          </div>
+          <div style="text-align:center;padding:20px;border-radius:12px;background:rgba(34,197,94,.04);border:1px solid var(--border)">
+            <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--muted)">04</div>
+            <div style="font-size:14px;font-weight:500">Собирает APK</div>
+          </div>
+          <div style="text-align:center;padding:20px;border-radius:12px;background:rgba(34,197,94,.08);border:1px solid var(--accent)">
+            <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">05</div>
+            <div style="font-size:14px;font-weight:500">Готово в /Download/</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;font-size:12px;color:var(--muted)" class="mono">
+          Если упало — исправляет и пересобирает автоматически
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REQUIREMENTS -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">04</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Требования</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px">
+      <div style="padding:24px;border-radius:16px;background:var(--card);border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span style="color:#dc2626;font-weight:700;font-size:20px">✗</span>
+          <h3 style="font-size:18px;font-weight:600;margin:0">Что НЕ требует</h3>
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;font-size:14px;color:var(--muted);display:flex;flex-direction:column;gap:8px">
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>Root</li>
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>API-ключей DeepSeek</li>
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>Wi-Fi (локальный loopback)</li>
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>ADB</li>
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>Установки Python-пакетов</li>
+          <li><span style="color:#dc2626;font-weight:700;margin-right:8px">−</span>VPN</li>
+        </ul>
+      </div>
+      <div style="padding:24px;border-radius:16px;background:linear-gradient(180deg,rgba(34,197,94,.04),var(--card));border:1px solid var(--accent)">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <span style="color:var(--accent);font-weight:700;font-size:20px">✓</span>
+          <h3 style="font-size:18px;font-weight:600;margin:0">Что требует</h3>
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;font-size:14px;display:flex;flex-direction:column;gap:8px">
+          <li><span style="color:var(--accent);font-weight:700;margin-right:8px">+</span>Android 7+ (SDK 24)</li>
+          <li><span style="color:var(--accent);font-weight:700;margin-right:8px">+</span>Termux из F-Droid</li>
+          <li><span style="color:var(--accent);font-weight:700;margin-right:8px">+</span>Termux:API из F-Droid</li>
+          <li><span style="color:var(--accent);font-weight:700;margin-right:8px">+</span>DeepSeek из Play Market</li>
+        </ul>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
+          Всё ставится за 10 минут · есть install.sh и инструкция
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TECHNICAL SOLUTIONS -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">05</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Технические решения</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">SOCKET ВМЕСТО ФАЙЛОВ</div>
+        <p style="font-size:14px;margin:0;color:var(--muted)">Android 11+ не даёт a11y писать в /sdcard/. Сокет 127.0.0.1 решает всё — нужно только INTERNET.</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">CANPERFORMGESTURES</div>
+        <p style="font-size:14px;margin:0;color:var(--muted)">Без флага в конфиге a11y жесты dispatchGesture уходят в никуда и Compose их игнорирует.</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">COMPOSE ACTION_CLICK</div>
+        <p style="font-size:14px;margin:0;color:var(--muted)">Кнопки Compose не реагируют на dispatchGesture. Работает только performAction на кликабельном родителе.</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">INPUT COMPOSE</div>
+        <p style="font-size:14px;margin:0;color:var(--muted)">Поле ввода — ViewFactoryHolder с TextView-плейсхолдером. EditText появляется только после тапа.</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)" class="card-hover">
+        <div class="mono" style="font-size:11px;margin-bottom:8px;color:var(--accent)">KEYSTORE ВНЕ BUILD/</div>
+        <p style="font-size:14px;margin:0;color:var(--muted)">keystore.jks в keys/, а не в build/ — иначе rm -rf build удаляет его, и подпись меняется.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECURITY -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">06</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Безопасность</h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px">
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+        <div style="font-size:24px;margin-bottom:8px;color:var(--accent)">▣</div>
+        <h4 style="font-weight:600;margin:0 0 4px">Blacklist команд</h4>
+        <p style="font-size:13px;margin:0;color:var(--muted)">rm -rf /, mkfs, dd of=/dev, shutdown, reboot, fork-бомба</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+        <div style="font-size:24px;margin-bottom:8px;color:var(--accent)">↺</div>
+        <h4 style="font-weight:600;margin:0 0 4px">Автобэкап</h4>
+        <p style="font-size:13px;margin:0;color:var(--muted)">Проект сохраняется перед любой правкой кода</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+        <div style="font-size:24px;margin-bottom:8px;color:var(--accent)">∞</div>
+        <h4 style="font-weight:600;margin:0 0 4px">Детектор зацикливания</h4>
+        <p style="font-size:13px;margin:0;color:var(--muted)">3 одинаковые итерации → автоматическая остановка</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+        <div style="font-size:24px;margin-bottom:8px;color:var(--accent)">⏱</div>
+        <h4 style="font-weight:600;margin:0 0 4px">Абсолютный таймаут</h4>
+        <p style="font-size:13px;margin:0;color:var(--muted)">Максимум 30 минут на одну задачу</p>
+      </div>
+      <div style="padding:20px;border-radius:12px;background:var(--card);border:1px solid var(--border)">
+        <div style="font-size:24px;margin-bottom:8px;color:var(--accent)">✗</div>
+        <h4 style="font-weight:600;margin:0 0 4px">Детектор провала</h4>
+        <p style="font-size:13px;margin:0;color:var(--muted)">Если ничего не сделал → status: failed, а не ложный success</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROADMAP -->
+  <div style="margin-bottom:80px" class="fade-in">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px">
+      <span class="mono" style="color:var(--accent)">07</span>
+      <h2 style="font-size:clamp(1.5rem,3vw,2rem);font-weight:700;margin:0">Что в планах</h2>
+    </div>
+    <div class="timeline">
+      <div class="timeline-item" data-dot="accent">
+        <div style="font-weight:600">Гибридный режим</div>
+        <div style="font-size:14px;color:var(--muted)">Быстрые задачи через API, творческие — через приложение</div>
+      </div>
+      <div class="timeline-item" data-dot="accent2">
+        <div style="font-weight:600">Шаблоны частых задач</div>
+        <div style="font-size:14px;color:var(--muted)">Готовые пресеты для повседневных сценариев</div>
+      </div>
+      <div class="timeline-item" data-dot="warm">
+        <div style="font-weight:600">Виджет на домашний экран</div>
+        <div style="font-size:14px;color:var(--muted)">Быстрый доступ без открытия приложения</div>
+      </div>
+      <div class="timeline-item">
+        <div style="font-weight:600">Расписание и триггеры</div>
+        <div style="font-size:14px;color:var(--muted)">По времени, Wi-Fi, уведомлениям</div>
+      </div>
+      <div class="timeline-item">
+        <div style="font-weight:600">Web-UI для логов</div>
+        <div style="font-size:14px;color:var(--muted)">Управление и мониторинг через браузер</div>
+      </div>
+      <div class="timeline-item">
+        <div style="font-weight:600">Whitelist команд</div>
+        <div style="font-size:14px;color:var(--muted)">Альтернатива blacklist для параноидального режима</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="text-align:center;padding:48px 0;border-top:1px solid var(--border)">
+    <div style="display:inline-flex;align-items:center;gap:12px;margin-bottom:16px">
+      <span class="pulse-dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 16px var(--accent)"></span>
+      <span style="font-size:24px;font-weight:700" class="gradient-text">Одна строка</span>
+    </div>
+    <p style="font-size:20px;margin:0 0 8px;color:var(--muted)">Ты пишешь — она делает.</p>
+    <p style="font-size:18px;margin:0 0 32px;font-weight:500" class="warm-text">Пока ты живёшь.</p>
+    <div class="mono" style="font-size:14px;color:var(--muted)">
+      <div>github.com/CR4CODE/Termux-Assistant-AI</div>
+      <div style="margin-top:4px;font-size:12px">MIT License · v1.0</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var tablist = document.querySelector('[role="tablist"]');
+  if(!tablist) return;
+  var buttons = Array.prototype.slice.call(tablist.querySelectorAll('.tab-btn'));
+  var panels  = Array.prototype.slice.call(document.querySelectorAll('.tab-content'));
+
+  window.switchTab = function(e, id){
+    var btn = e.currentTarget;
+    buttons.forEach(function(b){
+      b.classList.remove('active');
+      b.setAttribute('aria-selected','false');
+      b.setAttribute('tabindex','-1');
+    });
+    panels.forEach(function(p){ p.classList.remove('active'); });
+    btn.classList.add('active');
+    btn.setAttribute('aria-selected','true');
+    btn.setAttribute('tabindex','0');
+    var panel = document.getElementById('tab-' + id);
+    if(panel) panel.classList.add('active');
+  };
+
+  tablist.addEventListener('keydown', function(e){
+    if(e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    var current = buttons.indexOf(document.activeElement);
+    if(current === -1) current = buttons.findIndex(function(b){ return b.classList.contains('active'); });
+    var next = (e.key === 'ArrowRight')
+      ? (current + 1) % buttons.length
+      : (current - 1 + buttons.length) % buttons.length;
+    buttons[next].focus();
+    buttons[next].click();
+    e.preventDefault();
+  });
+})();
+</script>
+</body>
+</html>
