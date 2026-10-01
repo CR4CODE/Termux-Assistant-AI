@@ -102,6 +102,16 @@ public class SettingsActivity extends Activity {
             });
         }
 
+        // Кнопка Разработка
+        Button btnDev = findViewById(R.id.btn_dev);
+        if (btnDev != null) {
+            btnDev.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    startActivity(new Intent(SettingsActivity.this, DevActivity.class));
+                }
+            });
+        }
+
         // Кнопка GitHub-репозитория
         Button btnGithub = findViewById(R.id.btn_github);
         if (btnGithub != null) {

@@ -187,6 +187,16 @@
                 android:textAllCaps="false"
                 style="@style/PrimaryButton"/>
 
+            <Button
+                android:id="@+id/btn_dev"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="🛠 Разработка"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                style="@style/SecondaryButton"/>
+
             <TextView
             style="@style/SectionHeader"
             android:layout_width="match_parent"

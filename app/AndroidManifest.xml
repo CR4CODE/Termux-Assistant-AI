@@ -73,6 +73,7 @@
         </service>
 
             <activity android:name=".HistoryActivity" />
+        <activity android:name=".DevActivity" />
         <service
             android:name=".OverlayService"
             android:exported="false"
