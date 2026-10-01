@@ -44,7 +44,13 @@ public class MainActivity extends Activity {
     private Button btnRun;
     private Button btnSettings;
     private ListView listTasks;
-    private TextView emptyHistory;
+    private TextView logText;
+    private View logScroll;
+    private View logPanel;
+    private boolean logExpanded = true;
+    private int aiMode = 0; // 0=AI, 1=Dev, 2=Shell
+    private Button btnMode;
+    private View emptyHistory;
     private TextView envStatus;
 
     private final List<TaskItem> tasks = new ArrayList<>();
@@ -55,11 +61,20 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);        SharedPreferences tp = getSharedPreferences("app_prefs", MODE_PRIVATE);        String th = tp.getString("theme", "system");        if ("light".equals(th)) setTheme(R.style.AppTheme_Light);        else if ("dark".equals(th)) setTheme(R.style.AppTheme_Dark);
+        SharedPreferences tp = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        String th = tp.getString("theme", "system");
+        if ("light".equals(th)) setTheme(R.style.AppTheme_Light);
+        else setTheme(R.style.AppTheme_Dark);
+
+        super.onCreate(savedInstanceState);
+        // Убираем splash-фон, чтобы layout сам решал, что рисовать
+        getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+
         // Проверка первого запуска → Welcome wizard
         android.content.SharedPreferences _wp = getSharedPreferences("app_prefs", MODE_PRIVATE);
         if (!_wp.getBoolean("welcome_done", false)) {
             startActivity(new Intent(MainActivity.this, WelcomeActivity.class));
+            return;
         }
 
         setContentView(R.layout.activity_main);
@@ -85,9 +100,45 @@ public class MainActivity extends Activity {
                 }
             });
         }
-        listTasks = null; // moved to HistoryActivity
-        emptyHistory = null; // moved to HistoryActivity
+        listTasks = findViewById(R.id.list_tasks);
+        emptyHistory = findViewById(R.id.empty_history);
         envStatus = findViewById(R.id.env_status);
+
+        // Live-лог Termux
+        logText = findViewById(R.id.log_text);
+        logScroll = findViewById(R.id.log_scroll);
+        logPanel = findViewById(R.id.log_panel);
+        View logHeader = findViewById(R.id.log_header);
+        final TextView logToggle = findViewById(R.id.log_toggle);
+        if (logHeader != null) {
+            logHeader.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    logExpanded = !logExpanded;
+                    if (logScroll != null) {
+                        logScroll.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
+                    }
+                    if (logToggle != null) {
+                        logToggle.setText(logExpanded ? "▾" : "▸");
+                    }
+                }
+            });
+        }
+        refreshLog();
+
+        // Кнопка режима AI / Dev / Shell
+        btnMode = findViewById(R.id.btn_mode);
+        if (btnMode != null) {
+            aiMode = getSharedPreferences("app_prefs", MODE_PRIVATE).getInt("ai_mode", 0);
+            applyAiModeUi();
+            btnMode.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    aiMode = (aiMode + 1) % 3;
+                    getSharedPreferences("app_prefs", MODE_PRIVATE)
+                        .edit().putInt("ai_mode", aiMode).apply();
+                    applyAiModeUi();
+                }
+            });
+        }
 
         adapter = new TaskAdapter(this, tasks);
         if (listTasks != null) listTasks.setAdapter(adapter);
@@ -134,6 +185,24 @@ public class MainActivity extends Activity {
                     toggleFreeMode();
                 }
             });
+            // Свободный режим всегда ВЫКЛ при холодном старте
+            freeModeEnabled = false;
+            getSharedPreferences("app_prefs", MODE_PRIVATE)
+                .edit().putBoolean("free_mode_enabled", false).apply();
+            applyFreeModeUi(btnFree);
+            // Отправляем демону команду выключения (если он остался в режиме с прошлого раза)
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        java.net.Socket sock = new java.net.Socket();
+                        sock.connect(new java.net.InetSocketAddress("127.0.0.1", 8766), 2000);
+                        java.io.OutputStream os = sock.getOutputStream();
+                        os.write("BUFFER_WATCH off\n".getBytes("UTF-8"));
+                        os.flush();
+                        sock.close();
+                    } catch (Exception ignored) {}
+                }
+            }).start();
         }
 
         ensureDirs();
@@ -169,6 +238,7 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 loadTasks();
                 updateEnvStatus();
+                refreshLog();
                 handler.postDelayed(this, 3000);
             }
         };
@@ -220,22 +290,43 @@ public class MainActivity extends Activity {
         String id = "t" + System.currentTimeMillis();
         File f = new File(INBOX, "task-" + id + ".txt");
 
+        String payload = text;
+        if (aiMode == 1) payload = "dev:" + text;
+        else if (aiMode == 2) payload = "auto:" + text;
+
         try {
             FileWriter w = new FileWriter(f);
-            w.write(text);
+            w.write(payload);
             w.close();
             inputTask.setText("");
-            toast("Задача отправлена");
-            // Немедленно перечитаем
+            String modeName = aiMode == 1 ? "Dev" : (aiMode == 2 ? "Shell" : "AI");
+            toast("Задача отправлена (" + modeName + ")");
             handler.postDelayed(new Runnable() { @Override public void run() { loadTasks(); } }, 500);
         } catch (Exception e) {
             toast("Ошибка: " + e.getMessage());
         }
     }
 
+    private void applyAiModeUi() {
+        if (btnMode == null) return;
+        if (aiMode == 0) {
+            btnMode.setText("\uD83E\uDD16 AI");
+            btnMode.setBackgroundResource(R.drawable.btn_secondary);
+        } else if (aiMode == 1) {
+            btnMode.setText("\uD83D\uDEE0 Dev");
+            btnMode.setBackgroundResource(R.drawable.btn_primary);
+        } else {
+            btnMode.setText("\u25B6 Shell");
+            btnMode.setBackgroundResource(R.drawable.btn_primary);
+        }
+    }
+
     private void loadTasks() {
         File dir = new File(OUTBOX);
-        if (!dir.exists()) return;
+        if (!dir.exists()) {
+            if (emptyHistory != null) emptyHistory.setVisibility(View.VISIBLE);
+            return;
+        }
 
         File[] files = dir.listFiles(new java.io.FilenameFilter() {
             @Override public boolean accept(File d, String n) {
@@ -247,7 +338,10 @@ public class MainActivity extends Activity {
         List<TaskItem> fresh = new ArrayList<>();
         for (File f : files) {
             TaskItem t = parseTaskFile(f);
-            if (t != null) fresh.add(t);
+            if (t != null && t.task != null
+                && !t.id.startsWith("tile")) {
+                fresh.add(t);
+            }
         }
         Collections.sort(fresh, new java.util.Comparator<TaskItem>() {
             @Override public int compare(TaskItem a, TaskItem b) { return Long.compare(b.started, a.started); }
@@ -255,7 +349,7 @@ public class MainActivity extends Activity {
 
         tasks.clear();
         tasks.addAll(fresh);
-        adapter.notifyDataSetChanged();
+        if (adapter != null) adapter.notifyDataSetChanged();
 
         for (TaskItem t : tasks) notifyIfNeeded(t);
 
@@ -519,7 +613,10 @@ public class MainActivity extends Activity {
 
     private void toggleFreeMode() {
         freeModeEnabled = !freeModeEnabled;
+        getSharedPreferences("app_prefs", MODE_PRIVATE)
+            .edit().putBoolean("free_mode_enabled", freeModeEnabled).apply();
         Button btn = findViewById(R.id.btn_free_mode);
+        applyFreeModeUi(btn);
 
         try {
             // 1. Отправляем команду сервису через сокет
@@ -558,16 +655,109 @@ public class MainActivity extends Activity {
                         }, 500);
                     }
                 }
-                if (btn != null) btn.setText("🤖 Свободный режим: ВКЛ");
+                // UI обновлён через applyFreeModeUi
                 Toast.makeText(this, "Свободный режим включён. Копируй код из DeepSeek.", Toast.LENGTH_LONG).show();
             } else {
                 // Выключаем
                 OverlayService.stop(this);
-                if (btn != null) btn.setText("🤖 Свободный режим: ВЫКЛ");
+                // UI обновлён через applyFreeModeUi
                 Toast.makeText(this, "Свободный режим выключен", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
+    }
+
+    private void applyFreeModeUi(Button btn) {
+        if (btn == null) return;
+        btn.setText(freeModeEnabled ? "🤖 ВКЛ" : "🤖 ВЫКЛ");
+        btn.setBackgroundResource(freeModeEnabled ? R.drawable.btn_primary : R.drawable.btn_secondary);
+    }
+
+    // === Live-лог Termux ===
+    private static final String LOG_FILE = "/sdcard/ai-tasker/logs/daemon.log";
+    private static final int LOG_TAIL_LINES = 8;
+
+    private void refreshLog() {
+        if (logText == null) return;
+        try {
+            java.io.File f = new java.io.File(LOG_FILE);
+            if (!f.exists()) {
+                logText.setText("Лог не найден");
+                return;
+            }
+            long size = f.length();
+            long readFrom = Math.max(0, size - 8192);
+            byte[] buf = new byte[(int)(size - readFrom)];
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
+            raf.seek(readFrom);
+            raf.readFully(buf);
+            raf.close();
+
+            String all = new String(buf, "UTF-8");
+            String[] lines = all.split("\n");
+            int start = Math.max(0, lines.length - LOG_TAIL_LINES);
+            StringBuilder sb = new StringBuilder();
+            for (int i = start; i < lines.length; i++) {
+                String formatted = formatLogLine(lines[i]);
+                if (formatted != null) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(formatted);
+                }
+            }
+            if (sb.length() == 0) sb.append("Ожидание активности…");
+            String newText = sb.toString();
+            if (!newText.equals(logText.getText().toString())) {
+                logText.setText(newText);
+                if (logScroll instanceof android.widget.ScrollView) {
+                    final android.widget.ScrollView sv = (android.widget.ScrollView) logScroll;
+                    sv.post(new Runnable() {
+                        @Override public void run() { sv.fullScroll(View.FOCUS_DOWN); }
+                    });
+                }
+            }
+        } catch (Exception e) {
+            logText.setText("Ошибка чтения лога");
+        }
+    }
+
+    private String formatLogLine(String line) {
+        if (line == null) return null;
+        line = line.trim();
+        if (line.isEmpty()) return null;
+
+        String time = "";
+        if (line.startsWith("[") && line.length() > 9 && line.charAt(9) == ']') {
+            time = line.substring(1, 9);
+            line = line.substring(10).trim();
+        }
+        if (line.isEmpty()) return null;
+
+        String icon = "·";
+        String body = line;
+
+        if (line.startsWith("=== AUTO")) {
+            icon = "▶";
+            body = line.substring(4).trim();
+        } else if (line.startsWith("=== ")) {
+            icon = "▶";
+            body = line.substring(4).trim();
+        } else if (line.contains("результат записан")) {
+            icon = "💾";
+            body = "результат записан";
+        } else if (line.contains("rc=0")) {
+            icon = "✅";
+            body = "готово";
+        } else if (line.contains("rc=")) {
+            icon = "❌";
+            body = "ошибка выполнения";
+        } else if (line.contains("ошибка") || line.contains("error")) {
+            icon = "❌";
+        }
+
+        if (body.length() > 70) body = body.substring(0, 70) + "…";
+
+        if (time.isEmpty()) return icon + " " + body;
+        return time + " " + icon + " " + body;
     }
 }

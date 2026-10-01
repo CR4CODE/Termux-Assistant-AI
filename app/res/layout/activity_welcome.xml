@@ -16,26 +16,29 @@
             android:layout_height="wrap_content"
             android:text="Добро пожаловать!"
             android:textColor="?attr/appTextPrimary"
-            android:textSize="26sp"
+            android:textSize="28sp"
             android:textStyle="bold"
+            android:letterSpacing="0.01"
             android:gravity="center"
-            android:paddingTop="20dp"
+            android:paddingTop="24dp"
             android:paddingBottom="8dp"/>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Termux Assistant AI"
-            android:textColor="?attr/appTextSecondary"
+            android:textColor="?attr/appAccent"
             android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
             android:gravity="center"
-            android:paddingBottom="24dp"/>
+            android:paddingBottom="28dp"/>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Проверим, что всё готово к работе. Это займёт минуту."
-            android:textColor="?attr/appTextPrimary"
+            android:textColor="?attr/appTextSecondary"
             android:textSize="15sp"
             android:paddingBottom="20dp"/>
 
@@ -44,9 +47,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="?attr/appBgCard"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
             <TextView
                 android:id="@+id/step_termux_status"
@@ -70,9 +73,9 @@
                 android:id="@+id/btn_termux"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:text="Открыть F-Droid"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 style="@style/PrimaryButton"/>
         </LinearLayout>
 
@@ -81,9 +84,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="?attr/appBgCard"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
             <TextView
                 android:id="@+id/step_api_status"
@@ -106,9 +109,9 @@
                 android:id="@+id/btn_api"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:text="Открыть F-Droid"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 style="@style/PrimaryButton"/>
         </LinearLayout>
 
@@ -117,9 +120,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="?attr/appBgCard"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
             <TextView
                 android:id="@+id/step_deepseek_status"
@@ -142,9 +145,9 @@
                 android:id="@+id/btn_deepseek"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:text="Открыть Play Market"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 style="@style/PrimaryButton"/>
         </LinearLayout>
 
@@ -153,9 +156,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="?attr/appBgCard"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
             <TextView
                 android:id="@+id/step_permissions_status"
@@ -178,9 +181,9 @@
                 android:id="@+id/btn_permissions"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:text="Выдать разрешения"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 style="@style/PrimaryButton"/>
         </LinearLayout>
 
@@ -189,9 +192,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="?attr/appBgCard"
-            android:padding="14dp"
-            android:layout_marginBottom="10dp">
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
             <TextView
                 android:id="@+id/step_service_status"
@@ -214,9 +217,9 @@
                 android:id="@+id/btn_service"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:text="Открыть настройки"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 style="@style/PrimaryButton"/>
         </LinearLayout>
 
@@ -224,7 +227,7 @@
             android:id="@+id/btn_finish"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="24dp"
             android:text="Начать работу"
             android:textSize="16sp"
             style="@style/PrimaryButton"/>
@@ -236,6 +239,8 @@
             android:layout_marginTop="8dp"
             android:text="Пропустить (настрою позже)"
             android:textColor="?attr/appTextSecondary"
+            android:textSize="14sp"
+            android:textAllCaps="false"
             android:background="@android:color/transparent"/>
 
     </LinearLayout>

@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:padding="16dp">
 
         <TextView
             android:id="@+id/doc_view_title"
@@ -19,34 +19,39 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textColor="?attr/appTextPrimary"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.01"/>
 
         <Button
             android:id="@+id/btn_back_doc"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp"
             android:text="Назад"
-            android:textColor="?attr/appTextPrimary"
+            android:textColor="?attr/appAccent"
+            android:textSize="13sp"
+            android:textAllCaps="false"
             android:background="@android:color/transparent"/>
-
     </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:padding="12dp">
+        android:padding="16dp">
 
         <TextView
             android:id="@+id/doc_view_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textColor="?attr/appTextPrimary"
-            android:textSize="13sp"
-            android:typeface="monospace"
+            android:textSize="14sp"
+            android:fontFamily="@font/jetbrains_mono"
             android:textIsSelectable="true"
-            android:lineSpacingExtra="3dp"/>
+            android:lineSpacingExtra="5dp"/>
 
     </ScrollView>
 

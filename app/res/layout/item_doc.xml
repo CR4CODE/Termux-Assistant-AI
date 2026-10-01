@@ -3,8 +3,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:background="?attr/appBgCard"
+    android:background="@drawable/bg_card"
     android:padding="16dp"
+    android:layout_marginBottom="8dp"
     android:gravity="center_vertical">
 
     <TextView

@@ -11,7 +11,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:padding="16dp">
 
         <TextView
             android:layout_width="0dp"
@@ -19,17 +19,22 @@
             android:layout_weight="1"
             android:text="Инструкция"
             android:textColor="?attr/appTextPrimary"
-            android:textSize="20sp"
-            android:textStyle="bold"/>
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.01"/>
 
         <Button
             android:id="@+id/btn_close_docs"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp"
             android:text="Закрыть"
-            android:textColor="?attr/appTextPrimary"
+            android:textColor="?attr/appAccent"
+            android:textSize="13sp"
+            android:textAllCaps="false"
             android:background="@android:color/transparent"/>
-
     </LinearLayout>
 
     <ListView
@@ -37,7 +42,10 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:divider="?attr/appDivider"
-        android:dividerHeight="1dp"/>
+        android:padding="16dp"
+        android:clipToPadding="false"
+        android:scrollbarStyle="outsideOverlay"
+        android:divider="@null"
+        android:dividerHeight="0dp"/>
 
 </LinearLayout>

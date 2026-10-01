@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+  <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+    <item name="appBg">#121214</item>
+    <item name="appBgCard">#1A1A1D</item>
+    <item name="appBgInput">#232326</item>
+    <item name="appTextPrimary">#E8E5DF</item>
+    <item name="appTextSecondary">#8A8780</item>
+    <item name="appAccent">#22C55E</item>
+    <item name="appDivider">#2A2A2E</item>
+    <item name="android:windowBackground">@drawable/splash_bg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+    <item name="android:windowSplashScreenBackground">#121214</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    <item name="android:windowSplashScreenAnimationDuration">400</item>
+    <item name="android:textViewStyle">@style/AppTextView</item>
+    <item name="android:buttonStyle">@style/AppButton</item>
+    <item name="android:colorControlActivated">#22C55E</item>
+    <item name="android:colorControlNormal">?attr/appTextSecondary</item>
+  </style>
+
+  <style name="AppTheme.Dark" parent="android:Theme.Material.NoActionBar">
+    <item name="appBg">#121214</item>
+    <item name="appBgCard">#1A1A1D</item>
+    <item name="appBgInput">#232326</item>
+    <item name="appTextPrimary">#E8E5DF</item>
+    <item name="appTextSecondary">#8A8780</item>
+    <item name="appAccent">#22C55E</item>
+    <item name="appDivider">#2A2A2E</item>
+    <item name="android:windowBackground">@drawable/splash_bg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+    <item name="android:windowSplashScreenBackground">#121214</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    <item name="android:windowSplashScreenAnimationDuration">400</item>
+    <item name="android:textViewStyle">@style/AppTextView</item>
+    <item name="android:buttonStyle">@style/AppButton</item>
+    <item name="android:colorControlActivated">#22C55E</item>
+    <item name="android:colorControlNormal">?attr/appTextSecondary</item>
+  </style>
+
+  <style name="AppTheme.Light" parent="android:Theme.Material.Light.NoActionBar">
+    <item name="appBg">#FAF8F5</item>
+    <item name="appBgCard">#FFFFFF</item>
+    <item name="appBgInput">#F0EDE8</item>
+    <item name="appTextPrimary">#1A1A1D</item>
+    <item name="appTextSecondary">#5C5A55</item>
+    <item name="appAccent">#16A34A</item>
+    <item name="appDivider">#E5E0D8</item>
+    <item name="android:windowBackground">@drawable/splash_bg</item>
+    <item name="android:statusBarColor">?attr/appBg</item>
+    <item name="android:navigationBarColor">?attr/appBg</item>
+    <item name="android:windowSplashScreenBackground">#121214</item>
+    <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+    <item name="android:windowSplashScreenAnimationDuration">400</item>
+    <item name="android:textViewStyle">@style/AppTextView</item>
+    <item name="android:buttonStyle">@style/AppButton</item>
+    <item name="android:colorControlActivated">#16A34A</item>
+    <item name="android:colorControlNormal">?attr/appTextSecondary</item>
+  </style>
+
+</resources>

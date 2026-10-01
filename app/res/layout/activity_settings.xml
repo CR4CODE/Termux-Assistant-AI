@@ -21,19 +21,15 @@
             android:paddingBottom="16dp"/>
 
         <TextView
+            style="@style/SectionHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AI Bridge Service"
-            android:textColor="@color/text_primary"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:paddingTop="12dp"
-            android:paddingBottom="8dp"/>
+            android:text="AI Bridge Service"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/bg_card"
+            android:background="@drawable/bg_card"
             android:padding="12dp"
             android:orientation="vertical">
 
@@ -41,7 +37,7 @@
                 android:id="@+id/aibridge_status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
+                android:textColor="?attr/appTextPrimary"
                 android:textSize="14sp"
                 android:lineSpacingExtra="4dp"/>
 
@@ -66,10 +62,10 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/bg_card"
+            android:background="@drawable/bg_card"
             android:padding="12dp"
             android:layout_marginTop="8dp"
-            android:textColor="@color/text_secondary"
+            android:textColor="?attr/appTextSecondary"
             android:textSize="12sp"
             android:lineSpacingExtra="3dp"
             android:text="Как включить сервис (один раз):
@@ -83,7 +79,8 @@
 7. Подтверди PIN / отпечаток
 8. Снова открой Специальные возможности — теперь тумблер включится
 
-Важно: пункт «Разрешить ограниченные настройки» в ⋮ появится только после шага 3 — это защита Android."/>
+Важно: пункт «Разрешить ограниченные настройки» в ⋮ появится только после шага 3 — это защита Android."
+            android:fontFamily="@font/syne"/>
 
         <Button
             android:id="@+id/btn_open_restricted"
@@ -106,7 +103,7 @@
             android:id="@+id/env_details"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/appBgCard"
+            android:background="@drawable/bg_card"
             android:padding="12dp"
             android:textColor="?attr/appTextPrimary"
             android:textSize="13sp"
@@ -122,10 +119,12 @@
 
         <Button
             android:id="@+id/btn_open_sdcard"
+            style="@style/SecondaryButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Открыть папку /sdcard/ai-tasker"/>
+            android:text="Открыть папку /sdcard/ai-tasker"
+            android:fontFamily="@font/syne"/>
 
         <Button
             android:id="@+id/btn_open_docs"
@@ -137,34 +136,27 @@
             style="@style/PrimaryButton"/>
 
         <TextView
+            style="@style/SectionHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="О приложении"
-            android:textColor="?attr/appTextPrimary"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:paddingTop="24dp"
-            android:paddingBottom="8dp"/>
+            android:text="О приложении"/>
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/appBgCard"
+            android:background="@drawable/bg_card"
             android:padding="12dp"
             android:textColor="?attr/appTextSecondary"
             android:textSize="12sp"
             android:lineSpacingExtra="4dp"
-            android:text="Termux Assistant AI 1.0\n\nУправление задачами через Termux + DeepSeek.\nПриложение кладёт задачу в /sdcard/ai-tasker/inbox/, демон в Termux её выполняет и пишет результат в outbox/."/>
+            android:text="Termux Assistant AI 1.0\n\nУправление задачами через Termux + DeepSeek.\nПриложение кладёт задачу в /sdcard/ai-tasker/inbox/, демон в Termux её выполняет и пишет результат в outbox/."
+            android:fontFamily="@font/syne"/>
 
             <TextView
+                style="@style/SectionHeader"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Разработка"
-                android:textColor="?attr/appTextPrimary"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:paddingTop="20dp"
-                android:paddingBottom="8dp"/>
+                android:text="Разработка"/>
 
             <Button
                 android:id="@+id/btn_improve"
@@ -185,5 +177,54 @@
                 android:textAllCaps="false"
                 style="@style/PrimaryButton"/>
 
-            <TextView            android:layout_width="match_parent"            android:layout_height="wrap_content"            android:text="@string/theme_title"            android:textColor="?attr/appTextPrimary"            android:textSize="15sp"            android:textStyle="bold"            android:paddingTop="16dp"            android:paddingBottom="8dp"/>        <RadioGroup            android:id="@+id/theme_group"            android:layout_width="match_parent"            android:layout_height="wrap_content"            android:orientation="vertical"            android:paddingBottom="16dp">            <RadioButton                android:id="@+id/theme_light"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_light"                android:textColor="?attr/appTextPrimary"/>            <RadioButton                android:id="@+id/theme_dark"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_dark"                android:textColor="?attr/appTextPrimary"/>            <RadioButton                android:id="@+id/theme_system"                android:layout_width="match_parent"                android:layout_height="wrap_content"                android:text="@string/theme_system"                android:textColor="?attr/appTextPrimary"/>        </RadioGroup></LinearLayout>
+            <Button
+                android:id="@+id/btn_github"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="🐙 Репозиторий на GitHub"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                style="@style/PrimaryButton"/>
+
+            <TextView
+            style="@style/SectionHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/theme_title"/>
+
+        <RadioGroup
+            android:id="@+id/theme_group"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/theme_light"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/theme_light"
+                android:textColor="?attr/appTextPrimary"/>
+
+            <RadioButton
+                android:id="@+id/theme_dark"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/theme_dark"
+                android:textColor="?attr/appTextPrimary"/>
+
+            <RadioButton
+                android:id="@+id/theme_system"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:text="@string/theme_system"
+                android:textColor="?attr/appTextPrimary"/>
+        </RadioGroup></LinearLayout>
 </ScrollView>

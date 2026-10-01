@@ -2,7 +2,7 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/appBgCard"
+    android:background="@drawable/bg_card"
     android:maxHeight="560dp">
 
     <LinearLayout
@@ -48,15 +48,16 @@
             android:text="Задача"
             android:textColor="?attr/appTextSecondary"
             android:textSize="12sp"
-            android:paddingTop="12dp"
-            android:paddingBottom="4dp"/>
+            android:letterSpacing="0.05"
+            android:paddingTop="16dp"
+            android:paddingBottom="6dp"/>
 
         <TextView
             android:id="@+id/dlg_task"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/appBgInput"
-            android:padding="10dp"
+            android:background="@drawable/bg_input"
+            android:padding="12dp"
             android:textColor="?attr/appTextPrimary"
             android:textSize="14sp"
             android:textIsSelectable="true"/>
@@ -67,20 +68,21 @@
             android:text="Вывод"
             android:textColor="?attr/appTextSecondary"
             android:textSize="12sp"
-            android:paddingTop="12dp"
-            android:paddingBottom="4dp"/>
+            android:letterSpacing="0.05"
+            android:paddingTop="16dp"
+            android:paddingBottom="6dp"/>
 
         <TextView
             android:id="@+id/dlg_output"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="?attr/appBgInput"
-            android:padding="10dp"
+            android:background="@drawable/bg_input"
+            android:padding="12dp"
             android:textColor="?attr/appTextPrimary"
             android:textSize="12sp"
-            android:typeface="monospace"
+            android:fontFamily="@font/jetbrains_mono"
             android:textIsSelectable="true"
-            android:lineSpacingExtra="2dp"/>
+            android:lineSpacingExtra="3dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -90,39 +92,32 @@
 
             <Button
                 android:id="@+id/dlg_retry"
-                android:textAllCaps="false"
-                android:textSize="12sp"
-                android:paddingStart="2dp"
-                android:paddingEnd="2dp"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Повторить"
+                android:textSize="13sp"
                 style="@style/PrimaryButton"/>
 
             <Button
                 android:id="@+id/dlg_copy"
-                android:textAllCaps="false"
-                android:textSize="12sp"
-                android:paddingStart="2dp"
-                android:paddingEnd="2dp"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Копировать"/>
+                android:layout_marginStart="8dp"
+                android:text="Копировать"
+                android:textSize="13sp"
+                style="@style/SecondaryButton"/>
 
             <Button
                 android:id="@+id/dlg_delete"
-                android:textAllCaps="false"
-                android:textSize="12sp"
-                android:paddingStart="2dp"
-                android:paddingEnd="2dp"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
-                android:text="Удалить"/>
+                android:layout_marginStart="8dp"
+                android:text="Удалить"
+                android:textSize="13sp"
+                style="@style/SecondaryButton"/>
         </LinearLayout>
 
     </LinearLayout>

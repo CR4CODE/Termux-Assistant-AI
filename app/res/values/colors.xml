@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0F1115</color>
-    <color name="bg_card">#1A1D23</color>
-    <color name="bg_input">#232730</color>
-    <color name="text_primary">#E6E8EB</color>
-    <color name="text_secondary">#8B919A</color>
-    <color name="accent">#4C8DFF</color>
-    <color name="accent_pressed">#3B6FD9</color>
-    <color name="success">#4CAF50</color>
-    <color name="error">#E5484D</color>
-    <color name="divider">#2A2F3A</color>
+    <color name="bg">#121214</color>
+    <color name="bg_card">#1A1A1D</color>
+    <color name="bg_input">#232326</color>
+    <color name="text_primary">#E8E5DF</color>
+    <color name="text_secondary">#8A8780</color>
+    <color name="accent">#22C55E</color>
+    <color name="accent_pressed">#16A34A</color>
+    <color name="success">#22C55E</color>
+    <color name="error">#DC2626</color>
+    <color name="divider">#2A2A2E</color>
+    <color name="accent_soft">#1F22C55E</color>
+    <color name="accent2">#7BA8B8</color>
+    <color name="warm">#D4A574</color>
+    <color name="border">#14E8E5DF</color>
 </resources>

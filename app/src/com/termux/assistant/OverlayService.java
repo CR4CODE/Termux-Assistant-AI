@@ -103,8 +103,8 @@ public class OverlayService extends Service {
         overlayView = buildOverlayView();
 
         params = new WindowManager.LayoutParams(
-            dpToPx(52),
-            dpToPx(52),
+            dpToPx(56),
+            dpToPx(56),
             Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
@@ -126,25 +126,35 @@ public class OverlayService extends Service {
 
     private void updateState(String state) {
         if (indicator == null) return;
+        int color;
         if ("busy".equals(state)) {
-            indicator.setText("●");
-            indicator.setTextColor(0xFFFFC107); // жёлтый
+            color = 0xFFFFC107; // жёлтый
         } else if ("off".equals(state)) {
-            indicator.setText("●");
-            indicator.setTextColor(0xFFE5484D); // красный
+            color = 0xFFDC2626; // красный
         } else {
-            indicator.setText("●");
-            indicator.setTextColor(0xFF4CAF50); // зелёный
+            color = 0xFF22C55E; // зелёный
         }
+
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(0xFF1A1A1D);              // тёмный круг
+        bg.setStroke(dpToPx(2), color);       // цветная обводка
+        indicator.setBackground(bg);
+        indicator.setTextColor(color);
+        indicator.setText("\u25CF");
     }
 
     private View buildOverlayView() {
         indicator = new TextView(this);
-        indicator.setText("●");
-        indicator.setTextSize(30);
-        indicator.setTextColor(0xFF4CAF50);
+        indicator.setText("\u25CF");
+        indicator.setTextSize(28);
+        indicator.setTextColor(0xFF22C55E);
         indicator.setGravity(Gravity.CENTER);
-        indicator.setBackgroundColor(0x88000000);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(0xFF1A1A1D);
+        bg.setStroke(dpToPx(2), 0xFF22C55E);
+        indicator.setBackground(bg);
 
         final int[] initialX = {0};
         final int[] initialY = {0};

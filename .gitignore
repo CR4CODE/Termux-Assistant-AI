@@ -34,3 +34,13 @@ termux-apk/
 .DS_Store
 .idea/
 .vscode/
+
+# Локальные бэкапы
+app.bak-pre-sync/
+app/.backups/
+*.apk
+*.idsig
+build/
+.gradle/
+*.pre-*
+*.bak

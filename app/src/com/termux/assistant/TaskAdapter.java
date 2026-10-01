@@ -40,7 +40,7 @@ public class TaskAdapter extends BaseAdapter {
 
         status.setText(t.statusLabel());
         status.setTextColor(t.statusColor());
-        task.setText(t.task);
+        task.setText(stripPrefix(t.task));
         time.setText(t.timeLabel());
 
         if (duration != null) {
@@ -67,5 +67,13 @@ public class TaskAdapter extends BaseAdapter {
         }
 
         return v;
+    }
+
+    private static String stripPrefix(String s) {
+        if (s == null) return "";
+        if (s.startsWith("dev:"))       return s.substring(4).trim();
+        if (s.startsWith("auto:"))      return s.substring(5).trim();
+        if (s.startsWith("copy_exec:")) return s.substring(10).trim();
+        return s;
     }
 }

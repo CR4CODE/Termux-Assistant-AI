@@ -6,10 +6,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
-import android.view.View;
 import android.widget.Button;import android.widget.RadioGroup;
 import android.widget.TextView;
 
@@ -101,6 +99,24 @@ public class SettingsActivity extends Activity {
         if (btnImprove != null) {
             btnImprove.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { showImproveDialog(); }
+            });
+        }
+
+        // Кнопка GitHub-репозитория
+        Button btnGithub = findViewById(R.id.btn_github);
+        if (btnGithub != null) {
+            btnGithub.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://github.com/CR4CODE/Termux-Assistant-AI"));
+                        startActivity(i);
+                    } catch (Exception e) {
+                        android.widget.Toast.makeText(SettingsActivity.this,
+                            "Не удалось открыть: " + e.getMessage(),
+                            android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
             });
         }
 
