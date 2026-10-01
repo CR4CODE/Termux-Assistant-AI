@@ -93,6 +93,14 @@ public class MainActivity extends Activity {
         btnRun = findViewById(R.id.btn_run);
         btnSettings = findViewById(R.id.btn_settings);
         Button btnOpenHistory = findViewById(R.id.btn_open_history);
+        Button btnDeepSeek = findViewById(R.id.btn_deepseek);
+        if (btnDeepSeek != null) {
+            btnDeepSeek.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    startActivity(new Intent(MainActivity.this, DeepSeekWebActivity.class));
+                }
+            });
+        }
         if (btnOpenHistory != null) {
             btnOpenHistory.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
@@ -113,12 +121,20 @@ public class MainActivity extends Activity {
         if (logHeader != null) {
             logHeader.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    logExpanded = !logExpanded;
-                    if (logScroll != null) {
-                        logScroll.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
-                    }
-                    if (logToggle != null) {
-                        logToggle.setText(logExpanded ? "▾" : "▸");
+                    // Тап по шапке терминала переключает на режим Shell
+                    if (aiMode != 2) {
+                        aiMode = 2;
+                        getSharedPreferences("app_prefs", MODE_PRIVATE)
+                            .edit().putInt("ai_mode", aiMode).apply();
+                        applyAiModeUi();
+                    } else {
+                        logExpanded = !logExpanded;
+                        if (logScroll != null) {
+                            logScroll.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
+                        }
+                        if (logToggle != null) {
+                            logToggle.setText(logExpanded ? "▾" : "▸");
+                        }
                     }
                 }
             });
@@ -138,6 +154,20 @@ public class MainActivity extends Activity {
                     applyAiModeUi();
                 }
             });
+        }
+
+        // Overlay — запускаем ТОЛЬКО если пользователь включил в настройках
+        boolean overlayEnabled = getSharedPreferences("app_prefs", MODE_PRIVATE)
+            .getBoolean("overlay_enabled", false);
+        if (overlayEnabled) {
+            if (Build.VERSION.SDK_INT >= 23 && Settings.canDrawOverlays(this)) {
+                OverlayService.start(this);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override public void run() {
+                        OverlayService.setState(MainActivity.this, "on");
+                    }
+                }, 500);
+            }
         }
 
         adapter = new TaskAdapter(this, tasks);
@@ -319,6 +349,17 @@ public class MainActivity extends Activity {
             btnMode.setText("\u25B6 Shell");
             btnMode.setBackgroundResource(R.drawable.btn_primary);
         }
+
+        // Shell режим = раскрываем лог, AI/Dev = сворачиваем
+        if (logScroll != null) {
+            boolean shellOn = (aiMode == 2);
+            logExpanded = shellOn;
+            logScroll.setVisibility(shellOn ? View.VISIBLE : View.GONE);
+            View logToggle = findViewById(R.id.log_toggle);
+            if (logToggle instanceof TextView) {
+                ((TextView) logToggle).setText(shellOn ? "\u25BE" : "\u25B8");
+            }
+        }
     }
 
     private void loadTasks() {
@@ -353,7 +394,8 @@ public class MainActivity extends Activity {
 
         for (TaskItem t : tasks) notifyIfNeeded(t);
 
-        if (emptyHistory != null) emptyHistory.setVisibility(tasks.isEmpty() ? View.VISIBLE : View.GONE);
+        if (emptyHistory != null) emptyHistory.setVisibility(View.VISIBLE);
+        if (listTasks != null) listTasks.setVisibility(View.GONE);
     }
 
     static TaskItem parseTaskFile(File f) {
@@ -635,32 +677,30 @@ public class MainActivity extends Activity {
             }).start();
 
             if (freeModeEnabled) {
-                // 2. Запускаем overlay если настройка включена
-                SharedPreferences p = getSharedPreferences("app_prefs", MODE_PRIVATE);
-                boolean showOverlay = p.getBoolean("show_overlay", true);
-                if (showOverlay) {
-                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-                        // Запрашиваем разрешение
-                        try {
-                            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + getPackageName()));
-                            startActivity(i);
-                        } catch (Exception ignored) {}
-                    } else {
-                        OverlayService.start(this);
-                        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                            @Override public void run() {
-                                OverlayService.setState(MainActivity.this, "on");
-                            }
-                        }, 500);
-                    }
+                // При включении free mode overlay нужен для работы с буфером —
+                // запускаем его принудительно и запоминаем в настройке
+                getSharedPreferences("app_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("overlay_enabled", true).apply();
+                if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                    try {
+                        Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                        startActivity(i);
+                    } catch (Exception ignored) {}
+                } else {
+                    OverlayService.start(this);
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                        @Override public void run() {
+                            OverlayService.setState(MainActivity.this, "on");
+                        }
+                    }, 500);
                 }
-                // UI обновлён через applyFreeModeUi
                 Toast.makeText(this, "Свободный режим включён. Копируй код из DeepSeek.", Toast.LENGTH_LONG).show();
             } else {
-                // Выключаем
+                // При выключении free mode выключаем и overlay
+                getSharedPreferences("app_prefs", MODE_PRIVATE)
+                    .edit().putBoolean("overlay_enabled", false).apply();
                 OverlayService.stop(this);
-                // UI обновлён через applyFreeModeUi
                 Toast.makeText(this, "Свободный режим выключен", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {

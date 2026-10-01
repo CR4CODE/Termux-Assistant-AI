@@ -54,7 +54,7 @@
             android:layout_height="48dp"
             android:layout_weight="1"
             android:minHeight="0dp"
-            android:text="🤖 Свободный"
+            android:text="🤖 ВЫКЛ"
             android:textSize="12sp"
             android:textAllCaps="false"
             style="@style/SecondaryButton"/>
@@ -70,9 +70,20 @@
             android:textSize="12sp"
             android:textAllCaps="false"
             style="@style/PrimaryButton"/>
+
+        <Button
+            android:id="@+id/btn_deepseek"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:minHeight="0dp"
+            android:text="🐋 DeepSeek"
+            android:textSize="12sp"
+            android:textAllCaps="false"
+            style="@style/PrimaryButton"/>
     </LinearLayout>
 
-    <!-- Live-лог Termux -->
     <LinearLayout
         android:id="@+id/log_panel"
         android:layout_width="match_parent"
@@ -142,6 +153,7 @@
             android:id="@+id/list_tasks"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:visibility="gone"
             android:paddingLeft="16dp"
             android:paddingRight="16dp"
             android:paddingTop="4dp"
@@ -157,7 +169,6 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:orientation="vertical"
-            android:visibility="gone"
             android:padding="32dp">
 
             <TextView
@@ -226,6 +237,7 @@
             android:id="@+id/btn_mic"
             android:layout_width="48dp"
             android:layout_height="48dp"
+            android:layout_marginStart="8dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
             android:paddingLeft="0dp"

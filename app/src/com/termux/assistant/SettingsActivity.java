@@ -94,14 +94,6 @@ public class SettingsActivity extends Activity {
             });
         }
 
-        // Кнопка Улучшить приложение
-        Button btnImprove = findViewById(R.id.btn_improve);
-        if (btnImprove != null) {
-            btnImprove.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { showImproveDialog(); }
-            });
-        }
-
         // Кнопка Разработка
         Button btnDev = findViewById(R.id.btn_dev);
         if (btnDev != null) {
@@ -125,6 +117,36 @@ public class SettingsActivity extends Activity {
                         android.widget.Toast.makeText(SettingsActivity.this,
                             "Не удалось открыть: " + e.getMessage(),
                             android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+        }
+
+        // Кнопка Плавающая кнопка (overlay)
+        final Button btnOverlay = findViewById(R.id.btn_overlay);
+        if (btnOverlay != null) {
+            final SharedPreferences p = getSharedPreferences("app_prefs", MODE_PRIVATE);
+            final boolean[] enabled = {p.getBoolean("overlay_enabled", false)};
+            updateOverlayUi(btnOverlay, enabled[0]);
+
+            btnOverlay.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    enabled[0] = !enabled[0];
+                    p.edit().putBoolean("overlay_enabled", enabled[0]).apply();
+                    updateOverlayUi(btnOverlay, enabled[0]);
+                    if (enabled[0]) {
+                        if (android.os.Build.VERSION.SDK_INT >= 23
+                            && !Settings.canDrawOverlays(SettingsActivity.this)) {
+                            try {
+                                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:" + getPackageName()));
+                                startActivity(i);
+                            } catch (Exception ignored) {}
+                        } else {
+                            OverlayService.start(SettingsActivity.this);
+                        }
+                    } else {
+                        OverlayService.stop(SettingsActivity.this);
                     }
                 }
             });
@@ -244,44 +266,12 @@ public class SettingsActivity extends Activity {
         return "\u2717 " + label + " — отсутствует\n";
     }
 
-    private void showImproveDialog() {
-        final android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint("Что улучшить?");
-        input.setMinLines(3);
-        input.setPadding(24, 24, 24, 24);
 
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Улучшить приложение")
-            .setMessage("Опиши, что нужно изменить. DeepSeek прочитает исходники и пересоберёт APK.\n\nНовый APK появится в /sdcard/Download/")
-            .setView(input)
-            .setPositiveButton("Запустить", new android.content.DialogInterface.OnClickListener() {
-                @Override public void onClick(android.content.DialogInterface d, int w) {
-                    String task = input.getText().toString().trim();
-                    if (task.isEmpty()) return;
-                    submitDevTask(task);
-                }
-            })
-            .setNegativeButton("Отмена", null)
-            .show();
+
+
+    private void updateOverlayUi(Button btn, boolean on) {
+        if (btn == null) return;
+        btn.setText(on ? "Плавающая кнопка: ВКЛ" : "Плавающая кнопка: ВЫКЛ");
+        btn.setBackgroundResource(on ? R.drawable.btn_primary : R.drawable.btn_secondary);
     }
-
-    private void submitDevTask(String task) {
-        try {
-            String id = "dev" + System.currentTimeMillis();
-            java.io.File dir = new java.io.File("/sdcard/ai-tasker/inbox");
-            dir.mkdirs();
-            java.io.File f = new java.io.File(dir, "task-" + id + ".txt");
-            java.io.FileWriter fw = new java.io.FileWriter(f);
-            fw.write("dev:" + task);
-            fw.close();
-            android.widget.Toast.makeText(SettingsActivity.this,
-                "Задача отправлена. Смотри историю.",
-                android.widget.Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            android.widget.Toast.makeText(SettingsActivity.this,
-                "Ошибка: " + e.getMessage(),
-                android.widget.Toast.LENGTH_LONG).show();
-        }
-    }
-
 }

@@ -159,15 +159,6 @@
                 android:text="Разработка"/>
 
             <Button
-                android:id="@+id/btn_improve"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="🛠 Улучшить это приложение"
-                android:textSize="15sp"
-                android:textAllCaps="false"
-                style="@style/PrimaryButton"/>
-
-            <Button
                 android:id="@+id/btn_vk"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -236,5 +227,23 @@
                 android:paddingBottom="8dp"
                 android:text="@string/theme_system"
                 android:textColor="?attr/appTextPrimary"/>
-        </RadioGroup></LinearLayout>
+        </RadioGroup>
+
+            <TextView
+                style="@style/SectionHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Плавающая кнопка"/>
+
+            <Button
+                android:id="@+id/btn_overlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:text="Плавающая кнопка: ВЫКЛ"
+                android:textSize="15sp"
+                android:textAllCaps="false"
+                style="@style/SecondaryButton"/>
+
+        </LinearLayout>
 </ScrollView>
