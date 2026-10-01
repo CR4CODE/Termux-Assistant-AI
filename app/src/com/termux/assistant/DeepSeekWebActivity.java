@@ -2,10 +2,14 @@ package com.termux.assistant;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.KeyEvent;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -16,16 +20,26 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.File;
+import java.io.FileWriter;
 
 public class DeepSeekWebActivity extends Activity {
 
     private static final String START_URL = "https://chat.deepseek.com/";
+    private static final String INBOX = "/sdcard/ai-tasker/inbox";
+    private static final String OUTBOX = "/sdcard/ai-tasker/outbox";
     private static final long PAUSE_BETWEEN_MS = 5000;
 
     private WebView webView;
     private ProgressBar progressBar;
     private TextView statusLabel;
     private long lastSendTime = 0;
+    private long cycleStartTime = 0;
+    private String cycleTaskId = null;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable cycleRunnable;
 
     public class JsBridge {
         @JavascriptInterface
@@ -51,33 +65,6 @@ public class DeepSeekWebActivity extends Activity {
                         .setMessage(msg)
                         .setPositiveButton("OK", null)
                         .show();
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void onSendSuccess() {
-            runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    if (statusLabel != null) statusLabel.setText("Кнопка нажата — проверь поле ввода");
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void onSendFail(final int delta) {
-            runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    if (statusLabel != null) statusLabel.setText("✗ Не ушло (delta=" + delta + ")");
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void onTextInserted() {
-            runOnUiThread(new Runnable() {
-                @Override public void run() {
-                    pressEnterFallback();
                 }
             });
         }
@@ -107,7 +94,7 @@ public class DeepSeekWebActivity extends Activity {
         Button debugBtn = findViewById(R.id.btn_ds_debug);
         if (debugBtn != null) {
             debugBtn.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { testSend(); }
+                @Override public void onClick(View v) { sendTest(); }
             });
         }
 
@@ -115,6 +102,27 @@ public class DeepSeekWebActivity extends Activity {
         if (readBtn != null) {
             readBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { readReply(); }
+            });
+        }
+
+        Button fromClipBtn = findViewById(R.id.btn_ds_from_clip);
+        if (fromClipBtn != null) {
+            fromClipBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { insertFromClipboard(); }
+            });
+        }
+
+        Button cycleBtn = findViewById(R.id.btn_ds_cycle);
+        if (cycleBtn != null) {
+            cycleBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { startCycle(); }
+            });
+        }
+
+        Button clearBtn = findViewById(R.id.btn_ds_clear);
+        if (clearBtn != null) {
+            clearBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { clearInput(); }
             });
         }
 
@@ -173,21 +181,17 @@ public class DeepSeekWebActivity extends Activity {
     }
 
     private static final String JS_INIT =
-        "window.TermuxSend = function(text){"
+        "window.TermuxInsertText = function(text){"
         + "try{"
         + "var ta=document.querySelector('textarea');"
-        + "if(!ta){TermuxBridge.showDialog('Debug','no textarea');return 'no_ta';}"
+        + "if(!ta)return 'no_ta';"
         + "ta.focus();"
         + "var setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;"
         + "setter.call(ta,text);"
         + "ta.dispatchEvent(new Event('input',{bubbles:true}));"
         + "ta.dispatchEvent(new Event('change',{bubbles:true}));"
-        + "setTimeout(function(){"
-        + "var r=window.TermuxFindAndClick();"
-        + "TermuxBridge.log('click: '+r);"
-        + "},400);"
         + "return 'ok';"
-        + "}catch(e){TermuxBridge.log('err '+e);return 'err:'+e;}"
+        + "}catch(e){return 'err:'+e;}"
         + "};"
         + "window.TermuxFindAndClick=function(){"
         + "var ta=document.querySelector('textarea');"
@@ -195,7 +199,6 @@ public class DeepSeekWebActivity extends Activity {
         + "var taR=ta.getBoundingClientRect();"
         + "var all=document.querySelectorAll('[role=button],button');"
         + "var best=null,bestRight=-1;"
-        + "var cands=[];"
         + "for(var i=0;i<all.length;i++){"
         + "var b=all[i];var r=b.getBoundingClientRect();"
         + "if(r.width<20||r.width>80)continue;"
@@ -204,37 +207,75 @@ public class DeepSeekWebActivity extends Activity {
         + "if(r.top<taR.top-30)continue;"
         + "if(r.top>taR.bottom+150)continue;"
         + "if(!b.querySelector('svg'))continue;"
-        + "cands.push({x:Math.round(r.left),y:Math.round(r.top),right:r.right,w:r.width});"
         + "if(r.right>bestRight){bestRight=r.right;best=b;}"
         + "}"
-        + "if(!best){TermuxBridge.showDialog('Debug','no button. zone: ta.top='+Math.round(taR.top)+' ta.bottom='+Math.round(taR.bottom)+' total='+all.length);return 'no_btn';}"
-        + "var info='найдено: '+cands.length+'\\n';"
-        + "for(var j=0;j<cands.length&&j<5;j++){info=info+cands[j].x+','+cands[j].y+' w='+cands[j].w+'\\n';}"
-        + "TermuxBridge.log(info);"
+        + "if(!best)return 'no_btn';"
         + "best.click();"
-        + "TermuxBridge.showDialog('Debug', info+'клик по x='+Math.round(bestRight-17));"
         + "return 'clicked';"
+        + "};"
+        + "window.TermuxSend = function(text){"
+        + "try{"
+        + "var ins=window.TermuxInsertText(text);"
+        + "if(ins!=='ok')return ins;"
+        + "setTimeout(function(){"
+        + "var r=window.TermuxFindAndClick();"
+        + "TermuxBridge.log('send: '+r);"
+        + "},500);"
+        + "return 'ok';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxGetInput = function(){"
+        + "var ta=document.querySelector('textarea');"
+        + "return ta?ta.value:'';"
+        + "};"
+        + "window.TermuxReadLast = function(){"
+        + "var b=document.querySelectorAll('[class*=markdown]');"
+        + "if(b.length===0)return '';"
+        + "for(var i=b.length-1;i>=0;i--){"
+        + "var r=b[i].getBoundingClientRect();"
+        + "if(r.width<50)continue;"
+        + "var t=(b[i].innerText||'').trim();"
+        + "if(t.length<1)continue;"
+        + "return t;"
+        + "}"
+        + "return '';"
+        + "};"
+        + "window.TermuxClearInput = function(){"
+        + "try{"
+        + "var ta=document.querySelector('textarea');"
+        + "if(!ta)return 'no_ta';"
+        + "var setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;"
+        + "setter.call(ta,'');"
+        + "ta.dispatchEvent(new Event('input',{bubbles:true}));"
+        + "return 'ok';"
+        + "}catch(e){return 'err:'+e;}"
         + "};";
 
-    private void pressEnterFallback() {
+    private void insertFromClipboard() {
         try {
-            webView.requestFocus();
-            webView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
-            webView.dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER));
+            String text = readClipboard();
+            if (text == null || text.isEmpty()) {
+                toast("Буфер пуст");
+                return;
+            }
+            String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+            webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+            if (statusLabel != null) statusLabel.setText("Вставлено из буфера (" + text.length() + " симв.)");
         } catch (Exception e) {
-            android.util.Log.i("DeepSeekWeb", "enter err: " + e);
+            toast("Ошибка: " + e.getMessage());
         }
     }
 
-    private void testSend() {
+    private void clearInput() {
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        if (statusLabel != null) statusLabel.setText("Поле очищено");
+    }
+
+    private void sendTest() {
         long now = System.currentTimeMillis();
         if (now - lastSendTime < PAUSE_BETWEEN_MS) {
             long wait = (PAUSE_BETWEEN_MS - (now - lastSendTime)) / 1000;
-            new AlertDialog.Builder(this)
-                .setTitle("Слишком часто")
-                .setMessage("Подожди ещё " + wait + " сек.")
-                .setPositiveButton("OK", null)
-                .show();
+            toast("Подожди ещё " + wait + " сек");
             return;
         }
         lastSendTime = now;
@@ -244,34 +285,10 @@ public class DeepSeekWebActivity extends Activity {
     }
 
     private void readReply() {
-        String js = "(function(){"
-            + "var b=document.querySelectorAll('[class*=markdown]');"
-            + "if(b.length===0)return '';"
-            + "for(var i=b.length-1;i>=0;i--){"
-            + "var r=b[i].getBoundingClientRect();"
-            + "if(r.width<50)continue;"
-            + "var t=(b[i].innerText||'').trim();"
-            + "if(t.length<1)continue;"
-            + "if(t.indexOf('Привет! Ответь одним словом ОК')===0)continue;"
-            + "if(t==='OK')continue;"
-            + "return t;"
-            + "}"
-            + "for(var i=b.length-1;i>=0;i--){"
-            + "var t=(b[i].innerText||'').trim();"
-            + "if(t.length>0)return t;"
-            + "}"
-            + "return '';"
-            + "})();";
-
-        webView.evaluateJavascript(js, new android.webkit.ValueCallback<String>() {
+        webView.evaluateJavascript("window.TermuxReadLast();",
+            new android.webkit.ValueCallback<String>() {
             @Override public void onReceiveValue(String value) {
-                String cleaned = value;
-                if (cleaned != null && cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
-                    cleaned = cleaned.substring(1, cleaned.length() - 1);
-                }
-                if (cleaned != null) {
-                    cleaned = cleaned.replace("\\n", "\n").replace("\\\"", "\"");
-                }
+                String cleaned = unescapeJs(value);
                 new AlertDialog.Builder(DeepSeekWebActivity.this)
                     .setTitle("Ответ DeepSeek")
                     .setMessage(cleaned != null && !cleaned.isEmpty() ? cleaned : "(пусто)")
@@ -279,6 +296,127 @@ public class DeepSeekWebActivity extends Activity {
                     .show();
             }
         });
+    }
+
+    private void startCycle() {
+        long now = System.currentTimeMillis();
+        if (now - lastSendTime < PAUSE_BETWEEN_MS) {
+            long wait = (PAUSE_BETWEEN_MS - (now - lastSendTime)) / 1000;
+            toast("Подожди ещё " + wait + " сек");
+            return;
+        }
+
+        webView.evaluateJavascript("window.TermuxGetInput();",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                String text = unescapeJs(value);
+                if (text != null && !text.trim().isEmpty()) {
+                    runFullCycle(text.trim());
+                    return;
+                }
+                String fromClip = readClipboard();
+                if (fromClip == null || fromClip.trim().isEmpty()) {
+                    toast("Поле пусто и буфер пуст — скопируй код из DeepSeek");
+                    return;
+                }
+                // НЕ вставляем в поле — сразу выполняем
+                runFullCycle(fromClip.trim());
+            }
+        });
+    }
+
+    private void runFullCycle(final String taskText) {
+        lastSendTime = System.currentTimeMillis();
+
+        try {
+            File dir = new File(INBOX);
+            dir.mkdirs();
+            cycleTaskId = "buf" + System.currentTimeMillis();
+            File f = new File(dir, "task-" + cycleTaskId + ".txt");
+            FileWriter w = new FileWriter(f);
+            w.write("auto:" + taskText);
+            w.close();
+        } catch (Exception e) {
+            toast("Ошибка записи: " + e.getMessage());
+            return;
+        }
+
+        if (statusLabel != null) statusLabel.setText("⏳ Выполняется в Termux…");
+        cycleStartTime = System.currentTimeMillis();
+
+        cycleRunnable = new Runnable() {
+            @Override public void run() {
+                long elapsed = System.currentTimeMillis() - cycleStartTime;
+                if (elapsed > 120000) {
+                    if (statusLabel != null) statusLabel.setText("✗ Таймаут 2 мин");
+                    return;
+                }
+                File out = new File(OUTBOX, "task-" + cycleTaskId + ".json");
+                if (out.exists()) {
+                    String result = readResultFromJson(out);
+                    if (result != null) {
+                        webView.evaluateJavascript("window.TermuxClearInput();", null);
+                        String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+                        webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+                        if (statusLabel != null) statusLabel.setText("✓ Готово (" + result.length() + " симв.) — жми отправить");
+                        toast("Готово. Проверь поле");
+                        return;
+                    }
+                }
+                handler.postDelayed(this, 1500);
+            }
+        };
+        handler.postDelayed(cycleRunnable, 1500);
+    }
+
+    private String readResultFromJson(File f) {
+        try {
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            r.close();
+            org.json.JSONObject o = new org.json.JSONObject(sb.toString());
+            String output = o.optString("output", "");
+            String status = o.optString("status", "");
+            if (output != null && !output.isEmpty()) return output;
+            return "(пусто, статус: " + status + ")";
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String readClipboard() {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip()) return null;
+            ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return null;
+            CharSequence seq = clip.getItemAt(0).coerceToText(this);
+            return seq != null ? seq.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String unescapeJs(String value) {
+        if (value == null) return null;
+        String s = value;
+        if (s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length() - 1);
+        }
+        s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+        return s;
+    }
+
+    private void toast(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (cycleRunnable != null) handler.removeCallbacks(cycleRunnable);
     }
 
     @Override
