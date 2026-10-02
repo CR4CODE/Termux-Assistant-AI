@@ -233,6 +233,10 @@ def main():
     if args.changelog_file and os.path.exists(args.changelog_file):
         with open(args.changelog_file, "r", encoding="utf-8") as f:
             notes_text = f.read()
+        # Убираем первую строку-заголовок вида "## vX.Y — ..." если есть
+        lines = notes_text.split("\n", 1)
+        if lines and lines[0].startswith("##"):
+            notes_text = lines[1].lstrip("\n") if len(lines) > 1 else ""
     else:
         notes_text = f"Версия {args.version}. См. подробности в коммитах."
     prepend_changelog(args.version, notes_text)
