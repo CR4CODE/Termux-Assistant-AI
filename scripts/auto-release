@@ -151,6 +151,59 @@ def prepend_changelog(version, notes_text):
     log(f"CHANGELOG.md: добавлена запись {version}.0")
 
 
+def _extract_whatsnew(version, notes_text):
+    """Из тела CHANGELOG делает summary + буллеты (до 5 абзацев)."""
+    summary = f"**Что нового в v{version}**"
+    bullets = []
+    section_words = {"Добавлено", "Изменено", "Исправлено",
+                     "Удалено", "Убрано", "Исправления"}
+    for raw in notes_text.split("\n"):
+        s = raw.strip()
+        if not s:
+            continue
+        if s.startswith("#"):
+            continue
+        if s.startswith("[") and "]" in s[:16]:
+            continue
+        if s in section_words:
+            continue
+        if s == "---":
+            continue
+        if s.startswith(("- ", "* ")):
+            s = s[2:].strip()
+        if len(s) > 130:
+            s = s[:127].rstrip() + "…"
+        bullets.append(f"- {s}")
+        if len(bullets) >= 5:
+            break
+    return summary, bullets
+
+
+def update_readme_whatsnew(version, notes_text):
+    path = os.path.join(REPO, "README.md")
+    if not os.path.exists(path):
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+    summary, bullets = _extract_whatsnew(version, notes_text)
+    if bullets:
+        body = "\n".join(bullets)
+    else:
+        body = "- См. полный список в CHANGELOG.md"
+    block = (f"## ✨ Что нового в v{version}\n\n"
+             f"{summary}\n\n"
+             f"{body}\n\n"
+             f"Подробнее — в [CHANGELOG.md](CHANGELOG.md).\n\n")
+    pat = re.compile(r"## ✨ Что нового в v[\d.]+.*?(?=\n## )", re.DOTALL)
+    src2, n = pat.subn(block, src, count=1)
+    if n != 1:
+        log(f"README: блок «Что нового» не найден (n={n}) — пропускаю")
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src2)
+    log(f"README.md: переписан блок «Что нового в v{version}» ({len(bullets)} пунктов)")
+
+
 def bump_landing_and_readme(prev, version):
     for name in ("index.html", "README.md"):
         path = os.path.join(REPO, name)
@@ -244,6 +297,7 @@ def main():
     prepend_changelog(args.version, notes_text)
 
     bump_landing_and_readme(prev, args.version)
+    update_readme_whatsnew(args.version, notes_text)
 
     git_commit_push(args.version)
     git_tag(args.version)
