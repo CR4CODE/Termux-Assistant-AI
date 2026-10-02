@@ -152,29 +152,74 @@ def prepend_changelog(version, notes_text):
 
 
 def _extract_whatsnew(version, notes_text):
-    """Из тела CHANGELOG делает summary + буллеты (до 5 абзацев)."""
-    bullets = []
+    """Из тела CHANGELOG делает буллеты (до 5). Эвристика, не идеал."""
     section_words = {"Добавлено", "Изменено", "Исправлено",
-                     "Удалено", "Убрано", "Исправления"}
-    for raw in notes_text.split("\n"):
+                     "Удалено", "Убрано", "Исправления", "Главное"}
+    raw_lines = notes_text.split("\n")
+
+    # Первый проход: чистка служебного
+    cleaned = []
+    for raw in raw_lines:
         s = raw.strip()
         if not s:
+            cleaned.append("")
             continue
         if s.startswith("#"):
-            continue
-        if s.startswith("[") and "]" in s[:16]:
+            cleaned.append("__SKIP__")
             continue
         if s in section_words:
+            cleaned.append("__SKIP__")
             continue
-        if s == "---":
+        if s.startswith("[") and "]" in s[:16]:
+            cleaned.append("__SKIP__")
             continue
+        if s.startswith("**Полный список"):
+            break
+        cleaned.append(s)
+
+    # Второй проход: склейка пар и фильтр подзаголовков
+    bullets = []
+    i = 0
+    while i < len(cleaned) and len(bullets) < 5:
+        s = cleaned[i]
+        if s in ("__SKIP__", ""):
+            i += 1
+            continue
+
+        # подзаголовок группы: "**Что-то:**"
+        if s.startswith("**") and s.rstrip().endswith(":**"):
+            i += 1
+            continue
+
+        # склейка "**Жирный**\nописание"
+        is_bold_only = (s.startswith("**") and s.endswith("**")
+                        and s.count("**") == 2)
+        if is_bold_only:
+            # ищем следующий непустой
+            j = i + 1
+            while j < len(cleaned) and cleaned[j] in ("", "__SKIP__"):
+                j += 1
+            if j < len(cleaned):
+                nxt = cleaned[j]
+                # если следующий — не заголовок/подзаголовок/буллет
+                if (not nxt.startswith("#")
+                        and not nxt.startswith("**")
+                        and not nxt.startswith("- ")):
+                    s = s + " — " + nxt
+                    i = j + 1
+                else:
+                    i += 1
+            else:
+                i += 1
+        else:
+            i += 1
+
         if s.startswith(("- ", "* ")):
             s = s[2:].strip()
         if len(s) > 130:
             s = s[:127].rstrip() + "…"
         bullets.append(f"- {s}")
-        if len(bullets) >= 5:
-            break
+
     return bullets
 
 
