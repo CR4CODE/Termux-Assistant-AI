@@ -144,6 +144,50 @@ def vk_facts():
     return "\n\n".join(parts) or "(нет данных)", 0
 
 
+def release_path(kind, version):
+    return os.path.expanduser(f"~/.config/ai-tasker/release-{kind}-{version}.md")
+
+
+def release_save(kind, version, b64text):
+    import base64 as _b64
+    try:
+        text = _b64.b64decode(b64text.encode("utf-8")).decode("utf-8")
+    except Exception as e:
+        return f"base64 err: {e}", 1
+    p = release_path(kind, version)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(text)
+    return f"saved: {kind} ({len(text)} chars)", 0
+
+
+def release_run(version, vk=True):
+    script = os.path.expanduser("~/bin/auto-release")
+    if not os.path.exists(script):
+        return "auto-release не найден", 1
+    notes = release_path("notes", version)
+    ch = release_path("changelog", version)
+    vkf = release_path("vk", version)
+    cmd = [script, version]
+    if os.path.exists(notes):
+        cmd += ["--notes-file", notes]
+    if os.path.exists(ch):
+        cmd += ["--changelog-file", ch]
+    if os.path.exists(vkf) and vk:
+        cmd += ["--vk-post-file", vkf]
+    if not vk:
+        cmd += ["--no-vk"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=600)
+        out = r.stdout.decode("utf-8", "replace")
+        err = r.stderr.decode("utf-8", "replace")
+        return (out + ("\n" + err if err else "")).strip(), r.returncode
+    except subprocess.TimeoutExpired:
+        return "(TIMEOUT 600s)", 124
+    except Exception as e:
+        return f"(ошибка: {e})", 1
+
+
 def vk_post(text):
     script = os.path.expanduser("~/bin/vk-post")
     if not os.path.exists(script):
@@ -198,6 +242,23 @@ class Handler(BaseHTTPRequestHandler):
             output, rc = run_export_source()
         elif task.startswith("vk_facts:"):
             output, rc = vk_facts()
+        elif task.startswith("release_notes:"):
+            rest = task[14:]
+            parts = rest.split(":", 1)
+            output, rc = release_save("notes", parts[0], parts[1] if len(parts) > 1 else "")
+        elif task.startswith("release_changelog:"):
+            rest = task[18:]
+            parts = rest.split(":", 1)
+            output, rc = release_save("changelog", parts[0], parts[1] if len(parts) > 1 else "")
+        elif task.startswith("release_vk:"):
+            rest = task[11:]
+            parts = rest.split(":", 1)
+            output, rc = release_save("vk", parts[0], parts[1] if len(parts) > 1 else "")
+        elif task.startswith("release_run:"):
+            rest = task[12:]
+            parts = rest.split(":", 1)
+            vk_flag = (parts[1] != "no_vk") if len(parts) > 1 else True
+            output, rc = release_run(parts[0], vk=vk_flag)
         elif task.startswith("vk_post:"):
             output, rc = vk_post(task[8:].strip())
         elif task.startswith("vk_config:"):
