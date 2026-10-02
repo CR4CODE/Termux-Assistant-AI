@@ -94,14 +94,15 @@ def run_copy_exec(task_id):
 
     # 3. Выполнить
     try:
-        r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=120)
+        r = subprocess.run([os.path.expanduser("~/bin/ai-router"), code], capture_output=True, timeout=300)
         stdout = r.stdout.decode("utf-8", "replace")
         stderr = r.stderr.decode("utf-8", "replace")
         rc = r.returncode
         result = stdout + ("\n" + stderr if stderr else "")
-        result = result.strip() or f"(пустой вывод, rc={rc})"
+        lines = [x for x in result.split("\n") if not x.startswith("[router]")]
+        result = "\n".join(lines).strip() or f"(пустой вывод, rc={rc})"
     except subprocess.TimeoutExpired:
-        result, rc = "(TIMEOUT 120s)", 124
+        result, rc = "(TIMEOUT 300s)", 124
     except Exception as e:
         result, rc = f"(ошибка: {e})", 1
 
@@ -137,14 +138,15 @@ def run_auto(task_id, code):
     })
 
     try:
-        r = subprocess.run(["bash", "-c", code], capture_output=True, timeout=120)
+        r = subprocess.run([os.path.expanduser("~/bin/ai-router"), code], capture_output=True, timeout=300)
         out = r.stdout.decode("utf-8", "replace")
         err = r.stderr.decode("utf-8", "replace")
         rc = r.returncode
         result = out + ("\n" + err if err else "")
-        result = result.strip() or f"(пустой вывод, rc={rc})"
+        _lines = [x for x in result.split("\n") if not x.startswith("[router]")]
+        result = "\n".join(_lines).strip() or f"(пустой вывод, rc={rc})"
     except subprocess.TimeoutExpired:
-        result, rc = "(TIMEOUT 120s)", 124
+        result, rc = "(TIMEOUT 300s)", 124
     except Exception as e:
         result, rc = f"(ошибка: {e})", 1
 

@@ -769,8 +769,9 @@ public class MainActivity extends Activity {
             r.close();
 
             org.json.JSONObject o = new org.json.JSONObject(sb.toString());
-            String output = o.optString("output", "");
             String status = o.optString("status", "");
+            if ("running".equals(status)) return null;
+            String output = o.optString("output", "");
             if (output != null && !output.isEmpty()) return output;
             return "(пусто, статус: " + status + ")";
         } catch (Exception e) {
