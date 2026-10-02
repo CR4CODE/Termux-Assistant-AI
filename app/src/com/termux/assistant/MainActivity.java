@@ -301,12 +301,7 @@ public class MainActivity extends Activity {
         raw = raw.replace("\\\n", "\n").replace("\\\r", "\r").replace("\\\t", "\t");
 
         // Правильно экранируем для JS-строки
-        String escaped = raw
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\n", "\\\n")
-            .replace("\r", "\\\r")
-            .replace("\t", "\\\t");
+        String escaped = raw.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
 
         webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
 
@@ -647,7 +642,7 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
+            String escaped = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
             webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
             if (statusLabel != null) statusLabel.setText("Вставлено (" + text.length() + " симв.)");
         } catch (Exception e) {
@@ -726,7 +721,7 @@ public class MainActivity extends Activity {
                     if (result != null) {
                         webView.evaluateJavascript("window.TermuxClearInput();", null);
 
-                        String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
+                        String escaped = result.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
                         webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
 
                         if (statusLabel != null) {
