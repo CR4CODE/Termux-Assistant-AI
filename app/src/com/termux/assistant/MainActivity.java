@@ -726,7 +726,8 @@ public class MainActivity extends Activity {
         final String[] items = new String[]{
             "📋  История задач",
             "📖  Инструкция",
-            "⚙️  Настройки"
+            "⚙️  Настройки",
+            "📢  ВК-постинг"
         };
 
         new AlertDialog.Builder(this)
@@ -737,9 +738,223 @@ public class MainActivity extends Activity {
                     if (which == 0) i = new Intent(MainActivity.this, HistoryActivity.class);
                     else if (which == 1) i = new Intent(MainActivity.this, DocsActivity.class);
                     else if (which == 2) i = new Intent(MainActivity.this, SettingsActivity.class);
+                    else if (which == 3) { openVkMenu(); return; }
                     if (i != null) startActivity(i);
                 }
             })
+            .show();
+    }
+
+    private void openVkMenu() {
+        final String[] items = new String[]{
+            "✨  Сгенерировать пост из истории проекта",
+            "📝  Написать вручную",
+            "🔧  Настройки ВК",
+            "🌐  Открыть сообщество"
+        };
+        new AlertDialog.Builder(this)
+            .setTitle("ВК-постинг")
+            .setItems(items, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    if (which == 0) vkGenerate();
+                    else if (which == 1) vkComposeManual();
+                    else if (which == 2) vkSettings();
+                    else if (which == 3) {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://vk.com/termuxai")));
+                        } catch (Exception e) { toast("Не могу открыть: " + e.getMessage()); }
+                    }
+                }
+            })
+            .show();
+    }
+
+    private void vkSettings() {
+        SharedPreferences sp = getSharedPreferences("vk", MODE_PRIVATE);
+        final android.widget.EditText tok = new android.widget.EditText(this);
+        tok.setHint("access_token");
+        tok.setText(sp.getString("token", ""));
+        final android.widget.EditText gid = new android.widget.EditText(this);
+        gid.setHint("group_id (число)");
+        gid.setText(String.valueOf(sp.getInt("group_id", 0) == 0 ? "" : sp.getInt("group_id", 0)));
+        android.widget.LinearLayout ll = new android.widget.LinearLayout(this);
+        ll.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        ll.setPadding(pad, pad, pad, pad);
+        ll.addView(tok);
+        ll.addView(gid);
+        new AlertDialog.Builder(this)
+            .setTitle("Настройки ВК")
+            .setMessage("Токен сообщества: vk.com/termuxai → Управление → Работа с API")
+            .setView(ll)
+            .setPositiveButton("Сохранить", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    String t = tok.getText().toString().trim();
+                    String g = gid.getText().toString().trim();
+                    int gidN = 0;
+                    try { gidN = Integer.parseInt(g); } catch (Exception e) {}
+                    SharedPreferences sp = getSharedPreferences("vk", MODE_PRIVATE);
+                    sp.edit().putString("token", t).putInt("group_id", gidN).apply();
+                    toast("Сохранено");
+                    // Отправляем на сервер для обновления конфига
+                    syncVkConfig(t, gidN);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+
+    private void syncVkConfig(String token, int gid) {
+        // Отправляем токен на локальный сервер, чтобы vk-post мог им пользоваться
+        final String task = "vk_config:" + gid + ":" + token;
+        httpTask(task, new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                // молча
+            }
+        });
+    }
+
+    private void vkComposeManual() {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("Текст поста...");
+        et.setMinLines(6);
+        et.setGravity(android.view.Gravity.TOP);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        et.setPadding(pad, pad, pad, pad);
+        new AlertDialog.Builder(this)
+            .setTitle("Новый пост в ВК")
+            .setView(et)
+            .setPositiveButton("Опубликовать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    String text = et.getText().toString().trim();
+                    if (text.isEmpty()) { toast("Пусто"); return; }
+                    vkPublish(text);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+
+    private void vkPublish(final String text) {
+        if (text.contains("SMM-редактор") || text.contains("ФАКТЫ О ПРОЕКТЕ")) {
+            toast("Это промпт, а не пост. Жди ответа DeepSeek.");
+            return;
+        }
+        if (statusLabel != null) statusLabel.setText("Публикую в ВК...");
+        httpTask("vk_post:" + text, new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                if ("success".equals(status)) {
+                    if (statusLabel != null) statusLabel.setText("✓ Опубликовано в ВК");
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Пост опубликован")
+                        .setMessage(output)
+                        .setPositiveButton("OK", null)
+                        .show();
+                } else {
+                    if (statusLabel != null) statusLabel.setText("✗ ВК: ошибка");
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Ошибка публикации")
+                        .setMessage(output)
+                        .setPositiveButton("OK", null)
+                        .show();
+                }
+            }
+        });
+    }
+
+    private void vkGenerate() {
+        if (statusLabel != null) statusLabel.setText("Собираю факты...");
+        httpTask("vk_facts:", new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                if (output == null || output.isEmpty() || !"success".equals(status)) {
+                    if (statusLabel != null) statusLabel.setText("✗ Не могу собрать факты");
+                    toast("Не могу собрать факты: " + output);
+                    return;
+                }
+                final String facts = output;
+                String prompt = "Ты — SMM-редактор сообщества ВК проекта Termux Assistant AI.\n"
+                    + "На основе фактов ниже напиши пост для сообщества.\n\n"
+                    + "СТИЛЬ:\n"
+                    + "- Эмодзи в начале заголовка\n"
+                    + "- Короткие блоки, разделители ━━━━━━━━━━━━━━━━━━\n"
+                    + "- 900-1300 знаков, дружелюбно, без воды\n"
+                    + "- В конце ссылки: https://cr4code.github.io/Termux-Assistant-AI/ и https://github.com/CR4CODE/Termux-Assistant-AI\n"
+                    + "- Хэштеги: #termux #android #ai #deepseek #opensource #программирование\n"
+                    + "- НЕ упоминай то, чего нет в фактах\n"
+                    + "- Верни ТОЛЬКО готовый текст поста, без пояснений и без markdown-обёрток\n\n"
+                    + "ФАКТЫ О ПРОЕКТЕ:\n" + facts;
+                if (statusLabel != null) statusLabel.setText("Отправляю в DeepSeek...");
+                String escaped = org.json.JSONObject.quote(prompt);
+                webView.evaluateJavascript("window.TermuxClearInput();", null);
+                webView.evaluateJavascript("window.TermuxInsertText(" + escaped + ");", null);
+                webView.postDelayed(new Runnable() {
+                    @Override public void run() {
+                        webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+                    }
+                }, 700);
+                vkWaitReply(0);
+            }
+        });
+    }
+
+    private String vkLastReply = "";
+    private int vkStable = 0;
+
+    private void vkWaitReply(final int attempt) {
+        if (attempt > 80) {
+            if (statusLabel != null) statusLabel.setText("Таймаут генерации (4 мин)");
+            return;
+        }
+        if (statusLabel != null) statusLabel.setText("Ждём ответа DeepSeek... (" + (attempt * 3) + " сек)");
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxReadPost();",
+                    new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String value) {
+                        String reply = unescapeJs(value);
+                        if (reply == null) reply = "";
+                        reply = reply.trim();
+                        if (reply.length() < 300) {
+                            vkWaitReply(attempt + 1);
+                            return;
+                        }
+                        if (reply.equals(vkLastReply)) {
+                            vkStable++;
+                        } else {
+                            vkStable = 0;
+                            vkLastReply = reply;
+                        }
+                        if (vkStable >= 3 && attempt >= 8) {
+                            vkShowPreview(reply);
+                            return;
+                        }
+                        vkWaitReply(attempt + 1);
+                    }
+                });
+            }
+        }, 3000);
+    }
+
+    private void vkShowPreview(final String text) {
+        if (statusLabel != null) statusLabel.setText("Пост готов — проверь превью");
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setText(text);
+        et.setMinLines(10);
+        et.setGravity(android.view.Gravity.TOP);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        et.setPadding(pad, pad, pad, pad);
+        new AlertDialog.Builder(this)
+            .setTitle("Пост от DeepSeek (" + text.length() + " симв.)")
+            .setView(et)
+            .setPositiveButton("Опубликовать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    vkPublish(et.getText().toString().trim());
+                }
+            })
+            .setNeutralButton("Перегенерировать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { vkGenerate(); }
+            })
+            .setNegativeButton("Отмена", null)
             .show();
     }
 
@@ -1079,6 +1294,36 @@ public class MainActivity extends Activity {
         + "best.dispatchEvent(new MouseEvent('click',opts));"
         + "return 'me:'+(best.getAttribute('aria-label')||'')+'|'+(best.className||'').slice(0,50);"
         + "}catch(e){return 'err2:'+e;}"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxReadPost = function(){"
+        + "try{"
+        + "var all=document.querySelectorAll('[class*=markdown],[class*=message]');"
+        + "var best=null;"
+        + "for(var i=0;i<all.length;i++){"
+        + "var t=(all[i].innerText||'').trim();"
+        + "if(t.length<400)continue;"
+        + "if(t.length>3000)continue;"
+        + "if(t.indexOf('package com.termux')>=0)continue;"
+        + "if(t.indexOf('Thought for')===0)continue;"
+        + "if(t.indexOf('AI-generated')>=0)continue;"
+        + "if(t.indexOf('Message DeepSeek')>=0)continue;"
+        + "if(t.indexOf('Search')===0&&t.length<500)continue;"
+        + "if(t.indexOf('Ты — SMM')>=0)continue;"
+        + "if(t.indexOf('SMM-редактор')>=0)continue;"
+        + "if(t.indexOf('ФАКТЫ О ПРОЕКТЕ')>=0)continue;"
+        + "if(t.indexOf('НЕ упоминай то')>=0)continue;"
+        + "if(t.indexOf('Верни ТОЛЬКО')>=0)continue;"
+        + "if(t.indexOf('We need to')>=0)continue;"
+        + "if(t.indexOf('We should')>=0)continue;"
+        + "if(t.indexOf('Need to write')>=0)continue;"
+        + "if(t.indexOf('Let me')>=0)continue;"
+        + "if(t.indexOf('I need to')>=0)continue;"
+        + "if(t.indexOf('I will write')>=0)continue;"
+        + "if(t.indexOf('Based on the facts')>=0)continue;"
+        + "best=t;"
+        + "}"
+        + "return best||'';"
         + "}catch(e){return 'err:'+e;}"
         + "};"
         + "window.TermuxSetKbdLocked = function(locked){"

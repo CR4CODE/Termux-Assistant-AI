@@ -67,6 +67,97 @@ def run_export_source():
         return f"(ошибка: {e})", 1
 
 
+def vk_config_path():
+    return os.path.expanduser("~/.config/ai-tasker/vk.json")
+
+
+def vk_save_config(gid, token):
+    p = vk_config_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    os.chmod(os.path.dirname(p), 0o700)
+    try:
+        cfg = {}
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        cfg["access_token"] = token
+        cfg["group_id"] = int(gid)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False)
+        os.chmod(p, 0o600)
+        return f"Сохранено: group_id={gid}, token длина {len(token)}", 0
+    except Exception as e:
+        return f"Ошибка сохранения: {e}", 1
+
+
+def vk_facts():
+    """Собирает факты о проекте для генерации поста."""
+    import subprocess as sp
+    home = os.path.expanduser("~")
+    repo = os.path.join(home, "projects", "termux-assistant-ai")
+    parts = []
+
+    # 1. Последние 15 коммитов
+    try:
+        r = sp.run(["git", "-C", repo, "log", "--oneline", "-15"],
+                   capture_output=True, timeout=10)
+        log = r.stdout.decode("utf-8", "replace").strip()
+        if log:
+            parts.append("=== Последние коммиты ===\n" + log)
+    except Exception as e:
+        parts.append(f"git log err: {e}")
+
+    # 2. Последние 2 тега
+    try:
+        r = sp.run(["git", "-C", repo, "tag", "--sort=-creatordate"],
+                   capture_output=True, timeout=10)
+        tags = r.stdout.decode("utf-8", "replace").strip().split("\n")[:3]
+        if tags:
+            parts.append("=== Последние релизы ===\n" + ", ".join(t for t in tags if t))
+    except Exception:
+        pass
+
+    # 3. Текущая версия из build.sh
+    try:
+        bs = os.path.join(home, "projects", "termux-ai-kit", "ai-tasker-app", "build.sh")
+        with open(bs, "r", encoding="utf-8") as f:
+            content = f.read()
+        import re as _re
+        m = _re.search(r"--version-name (\S+)", content)
+        if m:
+            parts.append("=== Текущая версия ===\n" + m.group(1))
+    except Exception:
+        pass
+
+    # 4. Верхний блок CHANGELOG
+    try:
+        cl = os.path.join(repo, "CHANGELOG.md")
+        with open(cl, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Первый блок до второго "## ["
+        idx2 = content.find("## [", 5)
+        head = content[:idx2] if idx2 > 0 else content[:2000]
+        parts.append("=== Последний CHANGELOG ===\n" + head.strip()[:1500])
+    except Exception:
+        pass
+
+    return "\n\n".join(parts) or "(нет данных)", 0
+
+
+def vk_post(text):
+    script = os.path.expanduser("~/bin/vk-post")
+    if not os.path.exists(script):
+        return "vk-post не найден", 1
+    try:
+        r = subprocess.run([script, text], capture_output=True, timeout=60)
+        out = r.stdout.decode("utf-8", "replace")
+        err = r.stderr.decode("utf-8", "replace")
+        combined = (out + ("\n" + err if err else "")).strip()
+        return combined or "(пусто)", r.returncode
+    except Exception as e:
+        return f"(ошибка: {e})", 1
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
@@ -105,6 +196,21 @@ class Handler(BaseHTTPRequestHandler):
             output, rc = run_apply_patches()
         elif task.startswith("export_source:"):
             output, rc = run_export_source()
+        elif task.startswith("vk_facts:"):
+            output, rc = vk_facts()
+        elif task.startswith("vk_post:"):
+            output, rc = vk_post(task[8:].strip())
+        elif task.startswith("vk_config:"):
+            rest = task[10:]
+            parts = rest.split(":", 1)
+            if len(parts) == 2:
+                try:
+                    gid = int(parts[0])
+                except ValueError:
+                    gid = 0
+                output, rc = vk_save_config(gid, parts[1])
+            else:
+                output, rc = "Неверный формат vk_config", 1
         elif task.startswith("auto:"):
             output, rc = run_router(task[5:].strip())
         else:

@@ -1,0 +1,94 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""vk-post — постинг в сообщество ВК.
+
+Использование:
+  vk-post "текст поста"
+  echo "текст" | vk-post -
+  vk-post --from-file path
+
+Токен берётся из ~/.config/ai-tasker/vk.json
+"""
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+
+CONFIG = os.path.expanduser("~/.config/ai-tasker/vk.json")
+API = "https://api.vk.com/method/wall.post"
+API_VER = "5.199"
+
+
+def load_config():
+    if not os.path.exists(CONFIG):
+        print("Ошибка: нет ~/.config/ai-tasker/vk.json", file=sys.stderr)
+        sys.exit(1)
+    with open(CONFIG, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def post(text, from_group=True, attachments=""):
+    cfg = load_config()
+    token = cfg.get("access_token")
+    gid = cfg.get("group_id")
+    if not token or not gid:
+        print("Ошибка: нет access_token или group_id", file=sys.stderr)
+        sys.exit(1)
+
+    params = {
+        "owner_id": -int(gid),
+        "from_group": 1 if from_group else 0,
+        "message": text,
+        "access_token": token,
+        "v": API_VER,
+    }
+    if attachments:
+        params["attachments"] = attachments
+
+    data = urllib.parse.urlencode(params).encode("utf-8")
+    req = urllib.request.Request(API, data=data, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"HTTP ошибка: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if "error" in result:
+        err = result["error"]
+        print(f"VK ошибка: {err.get('error_msg')} (code {err.get('error_code')})", file=sys.stderr)
+        sys.exit(1)
+
+    post_id = result.get("response", {}).get("post_id")
+    print(f"OK: post_id={post_id}")
+    print(f"URL: https://vk.com/wall-{gid}_{post_id}")
+    return post_id
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+
+    arg = sys.argv[1]
+    if arg == "-":
+        text = sys.stdin.read()
+    elif arg == "--from-file":
+        if len(sys.argv) < 3:
+            print("Укажи путь к файлу", file=sys.stderr)
+            sys.exit(1)
+        with open(sys.argv[2], "r", encoding="utf-8") as f:
+            text = f.read()
+    else:
+        text = arg
+
+    text = text.strip()
+    if not text:
+        print("Пустой текст", file=sys.stderr)
+        sys.exit(1)
+
+    post(text)
+
+
+if __name__ == "__main__":
+    main()
