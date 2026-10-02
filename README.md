@@ -7,11 +7,11 @@
 ## 🌐 Ссылки
 
 - **Лендинг** — https://cr4code.github.io/Termux-Assistant-AI/
-- **Скачать APK v2.4.1** — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
+- **Скачать APK v2.4** — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
 - **Документация** — `docs/`
 - **Сообщество ВК** — https://vk.ru/termuxai
 
-## ✨ Что нового в v2.4.1
+## ✨ Что нового в v2.4
 
 **HTTP-обмен между приложением и Termux + стабильный Free-режим.**
 
