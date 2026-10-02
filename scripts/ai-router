@@ -70,6 +70,11 @@ def classify(task):
 
     # 2. Простые bash-команды (первое слово)
     first = tl.split()[0] if tl.split() else ""
+
+    # Если начинается с / или ~/ — это путь к скрипту, точно bash
+    if first.startswith("/") or first.startswith("~/") or first.startswith("./"):
+        return "bash", t
+
     bash_cmds = {"ls","df","du","uptime","date","whoami","pwd","free","ps","top",
                  "cat","head","tail","grep","find","echo","uname","env","unzip",
                  "curl","wget","ping","mkdir","touch","rm","cp","mv","chmod"}
@@ -79,7 +84,9 @@ def classify(task):
         return "bash", t
 
     # Известные команды Termux (даже если их нет в bash_cmds)
-    if first in {"gh","git","grep","find","head","tail","awk","sed","curl","wget",
+    if first in {"auto-release","vk-post","ai-router","ai-tasker-server","ai-tasker-daemon",
+                 "apply-patches","export-source","build.sh",
+                 "gh","git","grep","find","head","tail","awk","sed","curl","wget",
                  "cp","mv","rm","mkdir","chmod","touch","cat","echo","printf",
                  "python","python3","pip","nano","vim","tar","unzip","zip",
                  "termux-open","termux-notification","termux-clipboard-get",

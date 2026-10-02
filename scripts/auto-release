@@ -1,0 +1,253 @@
+#!/data/data/com.termux/files/usr/bin/python3
+"""auto-release — автоматический релиз Termux Assistant AI.
+
+Использование:
+  auto-release 2.4 --notes-file /path/notes.md [--changelog-file /path/ch.md]
+                   [--vk-post-file /path/vk.md] [--no-vk] [--dry-run]
+
+Что делает:
+  1. bump build.sh (version-code = X*100+Y, version-name = X.Y)
+  2. bash build.sh
+  3. sync MainActivity.java, build.sh, LockableWebView.java и др. в git-repo
+  4. prepend запись в CHANGELOG.md (из --changelog-file или шаблон)
+  5. обновить vX.Y в README.md и index.html
+  6. git add/commit/push в git-repo
+  7. git tag -a vX.Y + push
+  8. gh release create vX.Y с APK и --notes-file
+  9. (опционально) vk-post из --vk-post-file
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+HOME = os.path.expanduser("~")
+WORK = os.path.join(HOME, "projects", "termux-ai-kit", "ai-tasker-app")
+REPO = os.path.join(HOME, "projects", "termux-assistant-ai")
+APK_DIR = "/sdcard/Download"
+
+
+def log(msg):
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def run(cmd, cwd=None, check=True, capture=True):
+    r = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str),
+                       capture_output=capture, text=True)
+    if check and r.returncode != 0:
+        log(f"FAIL: {cmd}")
+        if capture:
+            log("STDOUT:\n" + (r.stdout or ""))
+            log("STDERR:\n" + (r.stderr or ""))
+        sys.exit(1)
+    return r
+
+
+def read_prev_version(bs_path):
+    with open(bs_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    m = re.search(r"--version-name (\S+)", content)
+    return m.group(1) if m else None
+
+
+def bump_version(version):
+    bs = os.path.join(WORK, "build.sh")
+    prev = read_prev_version(bs)
+    parts = version.split(".")
+    if len(parts) < 2:
+        raise SystemExit(f"Версия должна быть вида X.Y, получил: {version}")
+    code = int(parts[0]) * 100 + int(parts[1])
+    with open(bs, "r", encoding="utf-8") as f:
+        content = f.read()
+    content = re.sub(r"--version-code \d+ --version-name \S+",
+                     f"--version-code {code} --version-name {version}",
+                     content)
+    with open(bs, "w", encoding="utf-8") as f:
+        f.write(content)
+    log(f"build.sh: {prev} -> {version} (code {code})")
+    return prev
+
+
+def build_apk():
+    log("Сборка APK...")
+    r = run(["bash", "build.sh"], cwd=WORK, check=False)
+    if r.returncode != 0:
+        log("СБОРКА УПАЛА")
+        print(r.stdout)
+        print(r.stderr)
+        sys.exit(1)
+    # Найти последний APK
+    files = sorted(
+        [f for f in os.listdir(APK_DIR) if f.startswith("ai-tasker-build-") and f.endswith(".apk")],
+        key=lambda f: os.path.getmtime(os.path.join(APK_DIR, f)),
+        reverse=True,
+    )
+    if not files:
+        raise SystemExit("APK не найден")
+    apk = os.path.join(APK_DIR, files[0])
+    log(f"APK: {apk}")
+    return apk
+
+
+def copy_tree(src, dst):
+    """Копирует содержимое src в dst рекурсивно."""
+    if not os.path.exists(src):
+        return 0
+    count = 0
+    for root, dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        target = os.path.join(dst, rel) if rel != "." else dst
+        os.makedirs(target, exist_ok=True)
+        for fn in files:
+            s = os.path.join(root, fn)
+            d = os.path.join(target, fn)
+            try:
+                shutil.copy2(s, d)
+                count += 1
+            except Exception as e:
+                log(f"skip {s}: {e}")
+    return count
+
+
+def sync_files():
+    """Копирует src/ и res/ из рабочей папки в git-repo (полное зеркало)."""
+    # Отдельные файлы
+    for name in ("build.sh", "AndroidManifest.xml"):
+        s = os.path.join(WORK, name)
+        d = os.path.join(REPO, "app", name)
+        if os.path.exists(s):
+            shutil.copy2(s, d)
+            log(f"sync: app/{name}")
+
+    # Деревья
+    for name in ("src", "res"):
+        n = copy_tree(os.path.join(WORK, name), os.path.join(REPO, "app", name))
+        log(f"sync: app/{name}/ ({n} файлов)")
+
+
+def prepend_changelog(version, notes_text):
+    path = os.path.join(REPO, "CHANGELOG.md")
+    with open(path, "r", encoding="utf-8") as f:
+        src = f.read()
+    date = datetime.now().strftime("%Y-%m-%d")
+    header = f"## [{version}.0] — {date}\n\n"
+    entry = header + notes_text.strip() + "\n\n---\n\n"
+    # Вставляем после первой строки "# Changelog\n\nВсе значимые изменения проекта.\n\n"
+    marker = "Все значимые изменения проекта.\n\n"
+    i = src.find(marker)
+    if i < 0:
+        src = entry + src
+    else:
+        j = i + len(marker)
+        src = src[:j] + entry + src[j:]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(src)
+    log(f"CHANGELOG.md: добавлена запись {version}.0")
+
+
+def bump_landing_and_readme(prev, version):
+    for name in ("index.html", "README.md"):
+        path = os.path.join(REPO, name)
+        if not os.path.exists(path):
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+        # Заменяем все "vX.Y" -> "vX.Z" и "APK vX.Y" -> "APK vX.Z"
+        src = re.sub(rf"\bv{re.escape(prev)}\b", f"v{version}", src)
+        # "Что нового в vX.Y" — обработается выше
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(src)
+        log(f"{name}: v{prev} -> v{version}")
+
+
+def git_commit_push(version):
+    log("git add/commit/push в git-repo...")
+    run(["git", "add", "-A"], cwd=REPO, check=False)
+    msg = f"chore(release): v{version}"
+    r = run(["git", "commit", "-m", msg], cwd=REPO, check=False)
+    if r.returncode != 0 and "nothing to commit" in (r.stdout or ""):
+        log("нечего коммитить")
+    run(["git", "push", "origin", "main"], cwd=REPO)
+
+
+def git_tag(version):
+    log(f"git tag v{version}...")
+    tag = f"v{version}"
+    run(["git", "tag", "-a", tag, "-m", f"Release {tag}"], cwd=REPO, check=False)
+    run(["git", "push", "origin", tag], cwd=REPO, check=False)
+
+
+def gh_release(version, apk_path, notes_path):
+    log(f"gh release create v{version}...")
+    apk_local = os.path.join(HOME, f"termux-assistant-ai-v{version}.apk")
+    shutil.copy2(apk_path, apk_local)
+    title = f"v{version}"
+    cmd = ["gh", "release", "create", f"v{version}", apk_local,
+           "--title", title]
+    if notes_path and os.path.exists(notes_path):
+        cmd += ["--notes-file", notes_path]
+    else:
+        cmd += ["--notes", f"Release v{version}"]
+    r = run(cmd, cwd=REPO, check=False)
+    if r.returncode != 0:
+        log("gh release create упал, пробую upload (релиз уже есть?)")
+        run(["gh", "release", "upload", f"v{version}", apk_local, "--clobber"],
+            cwd=REPO, check=False)
+    print((r.stdout or "").strip())
+
+
+def vk_post_file(path):
+    if not path or not os.path.exists(path):
+        log("VK-пост не публикую (нет файла)")
+        return
+    log("Публикую в ВК...")
+    run([os.path.join(HOME, "bin", "vk-post"), "--from-file", path], check=False)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("version", help="Например 2.4")
+    ap.add_argument("--notes-file", default="", help="Release notes для GitHub")
+    ap.add_argument("--changelog-file", default="", help="Текст для CHANGELOG")
+    ap.add_argument("--vk-post-file", default="", help="Текст для ВК")
+    ap.add_argument("--no-vk", action="store_true", help="Не публиковать в ВК")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    log(f"=== auto-release {args.version} ===")
+    if args.dry_run:
+        log("(dry-run, ничего не меняю)")
+        return
+
+    prev = bump_version(args.version)
+
+    apk = build_apk()
+
+    sync_files()
+
+    notes_text = ""
+    if args.changelog_file and os.path.exists(args.changelog_file):
+        with open(args.changelog_file, "r", encoding="utf-8") as f:
+            notes_text = f.read()
+    else:
+        notes_text = f"Версия {args.version}. См. подробности в коммитах."
+    prepend_changelog(args.version, notes_text)
+
+    bump_landing_and_readme(prev, args.version)
+
+    git_commit_push(args.version)
+    git_tag(args.version)
+    gh_release(args.version, apk, args.notes_file)
+
+    if not args.no_vk:
+        vk_post_file(args.vk_post_file)
+
+    log(f"=== ГОТОВО: v{args.version} ===")
+
+
+if __name__ == "__main__":
+    main()
