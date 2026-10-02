@@ -11,6 +11,12 @@
 - **Документация** — `docs/`
 - **Сообщество ВК** — https://vk.ru/termuxai
 
+## ⚠️ Важно понимать
+
+Приложение — это **WebView-клиент**. Оно открывает DeepSeek внутри себя, а команды (Free, Dev, Релиз, ВК) отправляет по HTTP на локальный сервер `ai-tasker-server` (127.0.0.1:8767).
+
+**Без Termux и запущенного сервера APK не работает.** Кнопки будут молча висеть. Это связка APK + Termux-окружение, а не «просто APK».
+
 ## ✨ Что нового в v2.5
 
 **HTTP-обмен между приложением и Termux + стабильный Free-режим.**
@@ -20,10 +26,10 @@
 - 🌐 **WebView с DeepSeek** — полноценный чат, но под нашим контролем
 - 🔗 **JS-мост** (`TermuxInsertText`, `TermuxSend`, `TermuxReadLast`, …)
 - 📥 **Вставка из буфера** одной кнопкой в поле DeepSeek
-- 🚀 **Free-режим** — буфер/поле → inbox как `auto:` → результат обратно в поле
+- 🚀 **Free-режим** — буфер/поле → HTTP `/task` на 127.0.0.1:8767 → результат обратно в поле
 - 🛠 **Dev-режим** — выбор файла проекта → задача в DeepSeek → сборка APK
 - 📊 **Живой прогресс сборки** — «APK готов» или «Сборка упала» с хвостом ошибки
-- 🧹 Убран мёртвый код (`DeepSeekWebActivity`)
+- 🚀 **Кнопка «Релиз»** — публикация версии одной командой из приложения
 
 ## 🚀 Возможности
 
@@ -42,37 +48,34 @@
 **Нижняя панель:**
 
 - 📥 — вставить из буфера обмена в поле DeepSeek
-- 🚀 **Free** — из буфера/поля уходит `auto:команда` в inbox → Termux выполняет → результат сам вставляется обратно в поле DeepSeek
+- 🚀 **Free** — из буфера/поля уходит `auto:команда` → HTTP `/task` → Termux выполняет → результат сам вставляется обратно в поле DeepSeek
 - 🛠 **Dev** — список `.java` файлов проекта → задача в DeepSeek → ответ сохраняется → сборка
+- ⌨️ **Клавиатура** — блокировка/разблокировка
 - 🗑 — очистить поле ввода
 
-**Меню ≡:** История задач, Инструкция, Настройки.
+**Меню ≡:** История / Инструкция / Настройки / 📢 ВК-постинг / 🚀 Релиз.
 
 ### Free-режим
 
-```
-[Буфер]  или  [Поле DeepSeek]
-        ↓
-   inbox:  auto:uptime
-        ↓
-   Termux выполняет
-        ↓
-   результат → в поле DeepSeek
-```
+    [Буфер]  или  [Поле DeepSeek]
+            ↓
+       HTTP POST /task {task: "auto:uptime"}
+            ↓
+       ai-tasker-server → ai-router → bash
+            ↓
+       результат → в поле DeepSeek
 
 ### Dev-режим (полный цикл)
 
-```
-1. 🛠 Dev → показывается список src/*.java из /sdcard/ai-tasker/source/
-2. Выбираешь файл → вводишь задачу
-3. Приложение читает файл, формирует промпт, отправляет в DeepSeek
-4. Ждёт ответа (с проверкой завершённости и стабильности)
-5. Парсит ответ, сохраняет в /sdcard/ai-tasker/pending/
-6. Диалог "Найдено: MainActivity.java (N симв.)" → "Применить и собрать"
-7. inbox: apply_patches:
-8. apply-patches копирует файл в проект → build.sh → APK
-9. Приложение следит за outbox → "APK готов" с путём
-```
+    1. 🛠 Dev → список src/*.java из /sdcard/ai-tasker/source/
+    2. Выбираешь файл → вводишь задачу
+    3. Приложение читает файл, формирует промпт, отправляет в DeepSeek
+    4. Ждёт ответа (с проверкой завершённости и стабильности)
+    5. Парсит ответ, сохраняет в /sdcard/ai-tasker/pending/
+    6. Диалог "Найдено: MainActivity.java (N симв.)" → "Применить и собрать"
+    7. HTTP: apply_patches: → ai-tasker-server
+    8. apply-patches копирует файл в проект → build.sh → APK
+    9. Приложение получает результат → "APK готов" с путём
 
 ### Умная маршрутизация (Free / auto:)
 
@@ -83,58 +86,58 @@
 
 ## 🏗 Архитектура
 
-```
-Termux Assistant AI (APK)
-  ├─ MainActivity (WebView: chat.deepseek.com)
-  │    └─ JS-мост (TermuxSend, TermuxReadLast, …)
-  ├─ SettingsActivity / HistoryActivity / DocsActivity
-  ├─ OverlayService (плавающая кнопка)
-  └─ QuickTileService (плитка в шторке)
-              │
-   /sdcard/ai-tasker/ (inbox / outbox / pending / source)
-              ▼
-Termux
-  ├─ ai-tasker-daemon — слушает inbox
-  ├─ apply-patches    — копирует pending в проект + build.sh
-  ├─ export-source    — копирует src/ и res/ в /sdcard/ai-tasker/source/
-  ├─ ai-router        — маршрутизация auto:
-  └─ aib / grab / ai-cycle
-```
+    Termux Assistant AI (APK)
+      ├─ MainActivity (WebView: chat.deepseek.com)
+      │    └─ JS-мост (TermuxSend, TermuxReadLast, …)
+      ├─ SettingsActivity / HistoryActivity / DocsActivity
+      ├─ OverlayService (плавающая кнопка)
+      └─ QuickTileService (плитка в шторке)
+                  │
+            HTTP 127.0.0.1:8767
+                  ▼
+    Termux
+      ├─ ai-tasker-server — HTTP: POST /task, GET /health
+      ├─ ai-router        — маршрутизация (bash / url / a11y / ai)
+      ├─ apply-patches    — копирует pending в проект + build.sh
+      ├─ export-source    — копирует src/ и res/ в /sdcard/ai-tasker/source/
+      ├─ auto-release     — релиз одной командой
+      ├─ vk-post          — постинг в ВК
+      └─ ai-tasker-daemon — fallback: следит за /sdcard/ai-tasker/inbox
+
+    Legacy (не используется приложением, см. scripts/legacy/):
+      aib, aictl, receiver.py, ai-cycle, ai-dev, grab, aib-watchdog, logrotate-aib
 
 ## 📦 Установка
 
-**Что нужно (вручную):**
+**Что нужно:**
 
 1. [Termux](https://f-droid.org/packages/com.termux/) — F-Droid
 2. [Termux:API](https://f-droid.org/packages/com.termux.api/) — F-Droid
-3. [DeepSeek](https://www.deepseek.com/) — Play / сайт
+3. APK из [Releases](https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest)
 
-**Установка ассистента:**
+**Установка (в Termux):**
 
-```bash
-# 1. Клонировать репозиторий
-git clone https://github.com/CR4CODE/termux-assistant-ai.git
-cd termux-assistant-ai
+    git clone https://github.com/CR4CODE/Termux-Assistant-AI
+    cd Termux-Assistant-AI
+    bash release-utils/install.sh
 
-# 2. Установить скрипты и промпты
-bash release-utils/install.sh
-
-# 3. Установить APK из Releases (скачать → установить вручную)
-```
+Скрипт поставит скрипты, данные, симлинк, автозапуск и поднимет сервер. Дальше — установить APK из Releases и залогиниться в DeepSeek внутри приложения.
 
 Подробнее — в `docs/INSTALL.md`.
 
 ## 🔨 Сборка из исходников
 
-```bash
-cd termux-assistant-ai
-bash setup.sh
-cd app
-bash build.sh
-# Результат: /sdcard/Download/ai-tasker-build-*.apk
-```
+    cd Termux-Assistant-AI
+    bash setup.sh
+    cd app
+    bash build.sh
+    # Результат: /sdcard/Download/ai-tasker-build-*.apk
 
 Требования: `aapt2`, `d8`, `apksigner`, `openjdk-21`, `zip` в Termux.
+
+Релиз одной командой:
+
+    ~/bin/auto-release 2.6
 
 ## 📚 Документация
 
@@ -148,33 +151,36 @@ bash build.sh
 
 ## 🎯 Команды Termux (шпаргалка)
 
-```bash
-# Управление сервисом
-aictl-up
-aictl status
-aib ping
+    # Сервер и здоровье
+    pgrep -af ai-tasker-server
+    curl -s http://127.0.0.1:8767/health
 
-# Роутер
-ai-router "uptime"
-ai-router "открой вк"
-ai-router "открой гитхаб"
+    # Роутер
+    ai-router "uptime"
+    ai-router "открой вк"
+    ai-router "открой гитхаб"
 
-# Dev (ручной запуск)
-~/bin/ai-tasker-daemon        # держать запущенным
-apply-patches                 # применить pending и собрать
-export-source                 # обновить /sdcard/ai-tasker/source/
+    # Dev (ручной запуск)
+    apply-patches                 # применить pending и собрать
+    export-source                 # обновить /sdcard/ai-tasker/source/
 
-# Автономная разработка
-ai-dev "задача"
-```
+    # Релиз одной командой
+    auto-release 2.6
+
+    # ВК-постинг
+    vk-post "текст поста"
+
+    # Утилиты
+    ai-run                        # выполнить команду из буфера, обрезать вывод
+    tinfo                         # карточка состояния Termux
 
 ## 🛡 Безопасность
 
-- Blacklist команд: `rm -rf /`, `mkfs`, `dd of=/dev`, `shutdown`, `reboot`, fork-бомба
-- **Автобэкап** проекта перед любой правкой (`~/backups/auto-dev-*`)
-- При падении сборки — автоматический откат из бэкапа
-- Детектор зацикливания — 3 одинаковые итерации → автостоп
-- Абсолютный таймаут задачи
+- **Blacklist команд** в `ai-router`: `rm -rf /`, `mkfs`, `dd of=/dev`, `shutdown`, `reboot`, fork-бомба
+- **Whitelist** для shell-синтаксиса (`|`, `>`, `&&`, `;`, `$(...)`)
+- HTTP-сервер слушает **только** `127.0.0.1` — наружу не торчит
+- ВК-токен в `~/.config/ai-tasker/vk.json` с правами `chmod 600`
+- Таймаут задачи на сервере: 300 сек (auto), 600 сек (release)
 
 ## 📄 Лицензия
 
