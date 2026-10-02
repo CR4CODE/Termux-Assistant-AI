@@ -727,7 +727,8 @@ public class MainActivity extends Activity {
             "📋  История задач",
             "📖  Инструкция",
             "⚙️  Настройки",
-            "📢  ВК-постинг"
+            "📢  ВК-постинг",
+            "🚀  Релиз"
         };
 
         new AlertDialog.Builder(this)
@@ -739,6 +740,7 @@ public class MainActivity extends Activity {
                     else if (which == 1) i = new Intent(MainActivity.this, DocsActivity.class);
                     else if (which == 2) i = new Intent(MainActivity.this, SettingsActivity.class);
                     else if (which == 3) { openVkMenu(); return; }
+                    else if (which == 4) { releaseDialog(); return; }
                     if (i != null) startActivity(i);
                 }
             })
@@ -767,6 +769,263 @@ public class MainActivity extends Activity {
                 }
             })
             .show();
+    }
+
+    private void releaseDialog() {
+        final android.widget.EditText ver = new android.widget.EditText(this);
+        ver.setHint("Версия (например 2.5)");
+        String cur = getSharedPreferences("app", MODE_PRIVATE).getString("last_release_version", "2.4");
+        try {
+            String[] p = cur.split("\\.");
+            cur = p[0] + "." + (Integer.parseInt(p[1]) + 1);
+        } catch (Exception e) {}
+        ver.setText(cur);
+        int pad = (int)(16 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout ll = new android.widget.LinearLayout(this);
+        ll.setOrientation(android.widget.LinearLayout.VERTICAL);
+        ll.setPadding(pad, pad, pad, pad);
+        ll.addView(ver);
+        new AlertDialog.Builder(this)
+            .setTitle("Релиз")
+            .setMessage("Сгенерирую через DeepSeek:\n• Release notes\n• CHANGELOG-запись\n• Пост в ВК\n\nПотом покажу превью — сможешь править. Далее auto-release (сборка, git, GitHub Release).")
+            .setView(ll)
+            .setPositiveButton("Сгенерировать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    String v = ver.getText().toString().trim();
+                    if (v.isEmpty()) { toast("Введи версию"); return; }
+                    getSharedPreferences("app", MODE_PRIVATE).edit().putString("last_release_version", v).apply();
+                    releaseGenerate(v);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+
+    private String releaseVersion = "";
+    private String relNotes = "";
+    private String relChangelog = "";
+    private String relVk = "";
+    private int relStep = 0;
+
+    private void releaseGenerate(String version) {
+        releaseVersion = version;
+        relNotes = "";
+        relChangelog = "";
+        relVk = "";
+        relStep = 0;
+        if (statusLabel != null) statusLabel.setText("Собираю факты для v" + version + "...");
+        httpTask("vk_facts:", new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                if (output == null || output.isEmpty()) {
+                    toast("Не могу собрать факты");
+                    return;
+                }
+                releaseFacts = output;
+                relStep = 1;
+                releaseAskNotes();
+            }
+        });
+    }
+
+    private String releaseFacts = "";
+
+    private void releaseAskNotes() {
+        if (statusLabel != null) statusLabel.setText("Генерирую release notes...");
+        String p = "Составь Release Notes для GitHub релиза v" + releaseVersion + " проекта Termux Assistant AI.\n"
+            + "На основе фактов ниже. Формат markdown.\n"
+            + "Структура: ## v" + releaseVersion + " — <краткий заголовок>, затем разделы ### Главное / ### Исправлено / ### Добавлено (только те, что есть в фактах).\n"
+            + "Длина 800-1500 знаков. Без воды. Не выдумывай ничего.\n"
+            + "Верни ТОЛЬКО текст, без пояснений.\n\nФАКТЫ:\n" + releaseFacts;
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
+        webView.postDelayed(new Runnable() {
+            @Override public void run() { webView.evaluateJavascript("window.TermuxFindAndClick();", null); }
+        }, 700);
+        releaseWaitReply(0, "notes");
+    }
+
+    private void releaseWaitReply(final int attempt, final String kind) {
+        if (attempt > 60) {
+            if (statusLabel != null) statusLabel.setText("Таймаут (" + kind + ")");
+            return;
+        }
+        if (statusLabel != null) statusLabel.setText("Ждём " + kind + "... (" + (attempt * 3) + "с)");
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxReadPost();",
+                    new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String value) {
+                        String reply = unescapeJs(value);
+                        if (reply == null) reply = "";
+                        reply = reply.trim();
+                        if (reply.length() < 200) { releaseWaitReply(attempt + 1, kind); return; }
+                        if (reply.equals(releaseLast)) releaseStable++;
+                        else { releaseStable = 0; releaseLast = reply; }
+                        if (releaseStable >= 3 && attempt >= 5) {
+                            if ("notes".equals(kind)) {
+                                relNotes = reply;
+                                releaseAskChangelog();
+                            } else if ("changelog".equals(kind)) {
+                                relChangelog = reply;
+                                releaseAskVk();
+                            } else if ("vk".equals(kind)) {
+                                relVk = reply;
+                                releasePreview();
+                            }
+                            return;
+                        }
+                        releaseWaitReply(attempt + 1, kind);
+                    }
+                });
+            }
+        }, 3000);
+    }
+
+    private String releaseLast = "";
+    private int releaseStable = 0;
+
+    private void releaseAskChangelog() {
+        releaseLast = ""; releaseStable = 0;
+        if (statusLabel != null) statusLabel.setText("Генерирую CHANGELOG...");
+        String p = "Составь запись для CHANGELOG.md (markdown) о релизе v" + releaseVersion + " проекта Termux Assistant AI.\n"
+            + "Начни с '## [" + releaseVersion + ".0] — YYYY-MM-DD' (дата сегодня).\n"
+            + "Разделы: ### Добавлено / ### Изменено / ### Исправлено (только те, что есть в фактах).\n"
+            + "Каждый пункт — короткая строка с описанием. Длина 600-1200 знаков.\n"
+            + "Верни ТОЛЬКО текст CHANGELOG-записи.\n\nФАКТЫ:\n" + releaseFacts;
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
+        webView.postDelayed(new Runnable() {
+            @Override public void run() { webView.evaluateJavascript("window.TermuxFindAndClick();", null); }
+        }, 700);
+        releaseWaitReply(0, "changelog");
+    }
+
+    private void releaseAskVk() {
+        releaseLast = ""; releaseStable = 0;
+        if (statusLabel != null) statusLabel.setText("Генерирую пост в ВК...");
+        String p = "Ты — SMM-редактор сообщества ВК проекта Termux Assistant AI.\n"
+            + "Составь пост для сообщества ВК про релиз v" + releaseVersion + ".\n"
+            + "Формат: эмодзи + заголовок, разделители ━━━━━━━━━━━━━━━━━━, вступление, что нового, что было ранее, ссылки, хэштеги.\n"
+            + "Длина 900-1300 знаков. Хэштеги: #termux #android #ai #deepseek #opensource #программирование\n"
+            + "Ссылки: https://cr4code.github.io/Termux-Assistant-AI/ и https://github.com/CR4CODE/Termux-Assistant-AI\n"
+            + "Верни ТОЛЬКО текст поста.\n\nФАКТЫ:\n" + releaseFacts;
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
+        webView.postDelayed(new Runnable() {
+            @Override public void run() { webView.evaluateJavascript("window.TermuxFindAndClick();", null); }
+        }, 700);
+        releaseWaitReply(0, "vk");
+    }
+
+    private void releasePreview() {
+        if (statusLabel != null) statusLabel.setText("Готово — проверь и подтверди");
+        String msg = "Notes: " + relNotes.length() + " симв.\n"
+            + "CHANGELOG: " + relChangelog.length() + " симв.\n"
+            + "ВК-пост: " + relVk.length() + " симв.\n\n"
+            + "Запустить полный релиз v" + releaseVersion + "?\n\n"
+            + "(Сборка APK, sync, git commit, tag, GitHub Release, пост в ВК)";
+        new AlertDialog.Builder(this)
+            .setTitle("Релиз v" + releaseVersion)
+            .setMessage(msg)
+            .setPositiveButton("Релиз!", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { releaseRun(); }
+            })
+            .setNeutralButton("Показать тексты", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { releaseShowTexts(); }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+
+    private void releaseShowTexts() {
+        final String[] tabs = {"Notes", "CHANGELOG", "ВК"};
+        new AlertDialog.Builder(this)
+            .setTitle("Выбери текст для просмотра")
+            .setItems(tabs, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    final String text = which == 0 ? relNotes : which == 1 ? relChangelog : relVk;
+                    final android.widget.EditText et = new android.widget.EditText(MainActivity.this);
+                    et.setText(text);
+                    et.setMinLines(12);
+                    et.setGravity(android.view.Gravity.TOP);
+                    int pad = (int)(16 * getResources().getDisplayMetrics().density);
+                    et.setPadding(pad, pad, pad, pad);
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(tabs[which])
+                        .setView(et)
+                        .setPositiveButton("Сохранить правки", new DialogInterface.OnClickListener() {
+                            @Override public void onClick(DialogInterface d2, int w2) {
+                                String edited = et.getText().toString();
+                                if (which == 0) relNotes = edited;
+                                else if (which == 1) relChangelog = edited;
+                                else relVk = edited;
+                                toast("Сохранено");
+                                releasePreview();
+                            }
+                        })
+                        .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                            @Override public void onClick(DialogInterface d2, int w2) { releasePreview(); }
+                        })
+                        .show();
+                }
+            })
+            .show();
+    }
+
+    private void releaseRun() {
+        if (statusLabel != null) statusLabel.setText("Отправляю тексты на сервер...");
+        // base64-кодируем тексты и отправляем три запроса, потом release_run
+        try {
+            android.util.Base64.encodeToString(relNotes.getBytes("UTF-8"), android.util.Base64.NO_WRAP);
+        } catch (Exception e) {}
+        final String bNotes = b64(relNotes);
+        final String bCh = b64(relChangelog);
+        final String bVk = b64(relVk);
+
+        httpTask("release_notes:" + releaseVersion + ":" + bNotes, new HttpCallback() {
+            @Override public void onResult(String s1, String o1, int r1, double e1) {
+                httpTask("release_changelog:" + releaseVersion + ":" + bCh, new HttpCallback() {
+                    @Override public void onResult(String s2, String o2, int r2, double e2) {
+                        httpTask("release_vk:" + releaseVersion + ":" + bVk, new HttpCallback() {
+                            @Override public void onResult(String s3, String o3, int r3, double e3) {
+                                releaseDoRun();
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    private String b64(String text) {
+        try {
+            return android.util.Base64.encodeToString(text.getBytes("UTF-8"), android.util.Base64.NO_WRAP);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void releaseDoRun() {
+        if (statusLabel != null) statusLabel.setText("Релиз запущен (сборка + git + GitHub + ВК)...");
+        httpTask("release_run:" + releaseVersion, new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                if (rc == 0) {
+                    if (statusLabel != null) statusLabel.setText("Релиз v" + releaseVersion + " опубликован");
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Релиз v" + releaseVersion + " готов")
+                        .setMessage(output.length() > 1500 ? output.substring(output.length() - 1500) : output)
+                        .setPositiveButton("OK", null)
+                        .show();
+                } else {
+                    if (statusLabel != null) statusLabel.setText("Релиз упал");
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Релиз упал")
+                        .setMessage(output.length() > 1500 ? output.substring(output.length() - 1500) : output)
+                        .setPositiveButton("OK", null)
+                        .show();
+                }
+            }
+        });
     }
 
     private void vkSettings() {
