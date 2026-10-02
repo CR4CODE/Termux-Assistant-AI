@@ -722,8 +722,8 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            String escaped = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
-            webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+            String escaped = org.json.JSONObject.quote(text);
+            webView.evaluateJavascript("window.TermuxInsertText(" + escaped + ");", null);
             if (statusLabel != null) statusLabel.setText("Вставлено (" + text.length() + " симв.)");
         } catch (Exception e) {
             toast("Ошибка: " + e.getMessage());
