@@ -26,6 +26,11 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileWriter;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.io.FileReader;
 
 import org.json.JSONObject;
@@ -202,18 +207,10 @@ public class MainActivity extends Activity {
     }
 
     private void showFilePicker(final String task) {
-        // Обновляем source через Termux-скрипт export-source
-        try {
-            java.io.File inbox = new java.io.File(INBOX);
-            inbox.mkdirs();
-            java.io.File f = new java.io.File(inbox, "task-export" + System.currentTimeMillis() + ".txt");
-            java.io.FileWriter w = new java.io.FileWriter(f);
-            w.write("export_source:");
-            w.close();
-        } catch (Exception e) {
-            toast("Ошибка: " + e.getMessage());
-            return;
-        }
+        // Обновляем source через HTTP
+        httpTask("export_source:", new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) { }
+        });
 
         if (statusLabel != null) statusLabel.setText("Обновляю исходники...");
 
@@ -455,22 +452,105 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void applyAndBuild() {
-        try {
-            java.io.File dir = new java.io.File(INBOX);
-            dir.mkdirs();
-            final String id = "dev" + System.currentTimeMillis();
-            java.io.File f = new java.io.File(dir, "task-" + id + ".txt");
-            java.io.FileWriter w = new java.io.FileWriter(f);
-            w.write("apply_patches:");
-            w.close();
+    public interface HttpCallback {
+        void onResult(String status, String output, int rc, double elapsed);
+    }
 
-            if (statusLabel != null) statusLabel.setText("Применяю и собираю APK...");
-            toast("Применяю файлы и собираю APK");
-            pollApplyResult(id, 0, System.currentTimeMillis());
-        } catch (Exception e) {
-            toast("Ошибка: " + e.getMessage());
-        }
+    private void httpTask(final String task, final HttpCallback cb) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                HttpURLConnection conn = null;
+                try {
+                    URL url = new URL("http://127.0.0.1:8767/task");
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                    conn.setDoOutput(true);
+                    conn.setConnectTimeout(5000);
+                    conn.setReadTimeout(1800000);
+
+                    String body;
+                    try {
+                        org.json.JSONObject jo = new org.json.JSONObject();
+                        jo.put("task", task);
+                        body = jo.toString();
+                    } catch (Exception je) {
+                        body = "{\"task\":\"\"}";
+                    }
+                    byte[] payload = body.getBytes("UTF-8");
+                    conn.setFixedLengthStreamingMode(payload.length);
+                    OutputStream os = conn.getOutputStream();
+                    os.write(payload);
+                    os.close();
+
+                    int code = conn.getResponseCode();
+                    java.io.InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+                    BufferedReader r = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = r.readLine()) != null) sb.append(line).append("\n");
+                    r.close();
+
+                    org.json.JSONObject o = new org.json.JSONObject(sb.toString());
+                    final String status = o.optString("status", "error");
+                    final String output = o.optString("output", "");
+                    final int rc = o.optInt("exit_code", -1);
+                    final double elapsed = o.optDouble("elapsed", 0.0);
+                    webView.post(new Runnable() {
+                        @Override public void run() { cb.onResult(status, output, rc, elapsed); }
+                    });
+                } catch (final Exception e) {
+                    webView.post(new Runnable() {
+                        @Override public void run() { cb.onResult("error", "HTTP: " + e.getMessage(), -1, 0.0); }
+                    });
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            }
+        }).start();
+    }
+
+    private void applyAndBuild() {
+        if (statusLabel != null) statusLabel.setText("Применяю и собираю APK...");
+        toast("Применяю файлы и собираю APK");
+        final long startedAt = System.currentTimeMillis();
+        final Runnable tick = new Runnable() {
+            @Override public void run() {
+                long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
+                if (statusLabel != null) statusLabel.setText("Сборка APK... (" + elapsed + " сек)");
+            }
+        };
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        h.postDelayed(tick, 0);
+
+        httpTask("apply_patches:", new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                h.removeCallbacks(tick);
+                if ("success".equals(status)) {
+                    String apkPath = "/sdcard/Download/";
+                    int ai = output.lastIndexOf("APK:");
+                    if (ai >= 0) {
+                        int nl = output.indexOf('\n', ai);
+                        apkPath = (nl > 0 ? output.substring(ai + 4, nl) : output.substring(ai + 4)).trim();
+                    }
+                    if (statusLabel != null) statusLabel.setText("APK готов: " + apkPath);
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("APK готов")
+                        .setMessage(apkPath)
+                        .setPositiveButton("OK", null)
+                        .show();
+                } else {
+                    if (statusLabel != null) statusLabel.setText("Сборка упала");
+                    String tail = output.length() > 1500 ? output.substring(output.length() - 1500) : output;
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Сборка упала")
+                        .setMessage(tail)
+                        .setPositiveButton("OK", null)
+                        .show();
+                }
+                setActiveMode("none");
+            }
+        });
     }
 
     private void pollApplyResult(final String id, final int attempt, final long startedAt) {
@@ -687,72 +767,59 @@ public class MainActivity extends Activity {
 
     private void runFullCycle(final String taskText, final boolean autoSend, final String prefix) {
         lastSendTime = System.currentTimeMillis();
-
-        try {
-            File dir = new File(INBOX);
-            dir.mkdirs();
-
-            cycleTaskId = (prefix.equals("dev:") ? "dev" : "buf") + System.currentTimeMillis();
-            File f = new File(dir, "task-" + cycleTaskId + ".txt");
-            FileWriter w = new FileWriter(f);
-            w.write(prefix + taskText);
-            w.close();
-        } catch (Exception e) {
-            toast("Ошибка записи: " + e.getMessage());
-            return;
-        }
-
-        if (statusLabel != null) {
-            statusLabel.setText(prefix.equals("dev:") ? "🛠 Отправлено в ai-dev…" : "⏳ Выполняется в Termux…");
-        }
-
         cycleStartTime = System.currentTimeMillis();
+        if (statusLabel != null) {
+            statusLabel.setText(prefix.equals("dev:") ? "\uD83D\uDEE0 Отправлено в ai-dev\u2026" : "\u23F3 Выполняется в Termux\u2026");
+        }
+
+        final long startedAt = System.currentTimeMillis();
         cycleRunnable = new Runnable() {
             @Override public void run() {
-                long elapsed = System.currentTimeMillis() - cycleStartTime;
-                if (elapsed > 120000) {
-                    if (statusLabel != null) statusLabel.setText("✗ Таймаут 2 мин");
+                long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
+                if (statusLabel != null) statusLabel.setText("\u23F3 Выполняется... (" + elapsed + " сек)");
+                handler.postDelayed(this, 1000);
+            }
+        };
+        handler.postDelayed(cycleRunnable, 1000);
+
+        httpTask(prefix + taskText, new HttpCallback() {
+            @Override public void onResult(final String status, final String output, int rc, double elapsed) {
+                handler.removeCallbacks(cycleRunnable);
+                cycleRunnable = null;
+
+                if ("error".equals(status) || output == null || output.isEmpty()) {
+                    String err = (output == null || output.isEmpty()) ? "Пусто (rc=" + rc + ")" : output;
+                    if (statusLabel != null) statusLabel.setText("\u2717 " + err);
+                    setActiveMode("none");
                     return;
                 }
 
-                File out = new File(OUTBOX, "task-" + cycleTaskId + ".json");
-                if (out.exists()) {
-                    String result = readResultFromJson(out);
-                    if (result != null) {
-                        webView.evaluateJavascript("window.TermuxClearInput();", null);
+                webView.evaluateJavascript("window.TermuxClearInput();", null);
+                String escaped = org.json.JSONObject.quote(output);
+                webView.evaluateJavascript("window.TermuxInsertText(" + escaped + ");", null);
 
-                        String escaped = result.replace("\\", "\\\\").replace("\"", "\\\"").replace("'", "\\'").replace("\\n", "\\\\n").replace("\\r", "\\\\r");
-                        webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
-
-                        if (statusLabel != null) {
-                            String prefixName = prefix.equals("dev:") ? "🛠" : "✓";
-                            statusLabel.setText(autoSend
-                                ? prefixName + " Готово — отправляю"
-                                : prefixName + " Готово — жми отправить");
-                        }
-
-                        if (autoSend) {
-                            webView.postDelayed(new Runnable() {
-                                @Override public void run() {
-                                    webView.evaluateJavascript("window.TermuxFindAndClick();", null);
-                                }
-                            }, 600);
-                        } else {
-                            toast("Готово. Проверь поле");
-                        }
-
-                        webView.postDelayed(new Runnable() {
-                            @Override public void run() { setActiveMode("none"); }
-                        }, 2000);
-                        return;
-                    }
+                if (statusLabel != null) {
+                    String prefixName = prefix.equals("dev:") ? "\uD83D\uDEE0" : "\u2713";
+                    statusLabel.setText(autoSend
+                        ? prefixName + " Готово — отправляю"
+                        : prefixName + " Готово — жми отправить");
                 }
 
-                handler.postDelayed(this, 1500);
-            }
-        };
+                if (autoSend) {
+                    webView.postDelayed(new Runnable() {
+                        @Override public void run() {
+                            webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+                        }
+                    }, 600);
+                } else {
+                    toast("Готово. Проверь поле");
+                }
 
-        handler.postDelayed(cycleRunnable, 1500);
+                webView.postDelayed(new Runnable() {
+                    @Override public void run() { setActiveMode("none"); }
+                }, 2000);
+            }
+        });
     }
 
     private String readResultFromJson(File f) {
