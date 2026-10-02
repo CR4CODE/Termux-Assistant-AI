@@ -1,0 +1,26 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# export-source — копирует исходники проекта в /sdcard для приложения
+set -e
+
+SRC=/data/data/com.termux/files/home/projects/termux-ai-kit/ai-tasker-app
+DST=/sdcard/ai-tasker/source
+
+rm -rf "$DST"
+mkdir -p "$DST/src/com/termux/assistant"
+mkdir -p "$DST/res/layout"
+mkdir -p "$DST/res/values"
+
+# Java
+cp "$SRC"/src/com/termux/assistant/*.java "$DST/src/com/termux/assistant/" 2>/dev/null || true
+
+# Layout
+cp "$SRC"/res/layout/*.xml "$DST/res/layout/" 2>/dev/null || true
+
+# Values (strings, colors, styles)
+cp "$SRC"/res/values/*.xml "$DST/res/values/" 2>/dev/null || true
+
+# Manifest
+cp "$SRC/AndroidManifest.xml" "$DST/" 2>/dev/null || true
+
+echo ">>> Экспортировано в $DST"
+ls "$DST/src/com/termux/assistant/" | wc -l

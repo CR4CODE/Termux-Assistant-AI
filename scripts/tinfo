@@ -1,0 +1,35 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# tinfo — карточка состояния Termux/устройства
+
+if [ -t 1 ]; then
+  C='\033[1;36m'; R='\033[0m'
+else
+  C=''; R=''
+fi
+
+h() { printf "${C}%s${R}\n" "$1"; }
+
+h "=== Termux Info ==="
+echo "Дата:       $(date '+%Y-%m-%d %H:%M')"
+echo "Uptime:     $(uptime -p 2>/dev/null || uptime)"
+echo "Модель:     $(getprop ro.product.model 2>/dev/null)"
+echo "Android:    $(getprop ro.build.version.release 2>/dev/null)"
+
+h "--- Батарея ---"
+termux-battery-status 2>/dev/null \
+  | tr -d '", ' | tr ',' '\n' \
+  | grep -E 'percentage|temperature|status' \
+  || echo "нет данных"
+
+h "--- Wi-Fi ---"
+termux-wifi-connectioninfo 2>/dev/null \
+  | tr -d '", ' | tr ',' '\n' \
+  | grep -E '^link_speed_mbps' \
+  || echo "нет данных (SSID скрыт политикой Android)"
+
+h "--- Диск ---"
+echo "Home Termux: $(du -sh "$HOME" 2>/dev/null | awk '{print $1}')"
+echo "Свободно:    $(df -h "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+
+h "--- Память ---"
+free -h 2>/dev/null | head -2

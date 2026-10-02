@@ -1,0 +1,35 @@
+#!/data/data/com.termux/files/usr/bin/bash
+MAX_LINES=300
+KEEP_HEAD=200
+KEEP_TAIL=80
+
+cmd="$(termux-clipboard-get)"
+if [ -z "$cmd" ]; then
+  echo "Буфер пуст"
+  exit 1
+fi
+
+echo ">>> Выполняю:"
+echo "$cmd"
+echo "--- вывод ---"
+out="$(bash --noprofile --norc -c "$cmd" 2>&1)"
+status=$?
+
+echo "$out"
+echo "--- конец (код $status) ---"
+
+lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+if [ "$lines" -gt "$MAX_LINES" ]; then
+  head_part=$(printf '%s\n' "$out" | head -n "$KEEP_HEAD")
+  tail_part=$(printf '%s\n' "$out" | tail -n "$KEEP_TAIL")
+  payload="${head_part}
+
+[обрезано: ${lines} строк, полный лог в ~/.ai-history.log]
+
+${tail_part}"
+else
+  payload="$out"
+fi
+
+termux-clipboard-set "$payload"
+exit $status

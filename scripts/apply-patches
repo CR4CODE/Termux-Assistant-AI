@@ -1,0 +1,60 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# apply-patches — копирует файлы из /sdcard/ai-tasker/pending/ в проект и собирает APK.
+set -e
+
+PENDING=/sdcard/ai-tasker/pending
+PROJECT=/data/data/com.termux/files/home/projects/termux-ai-kit/ai-tasker-app
+BACKUP=/data/data/com.termux/files/home/backups/auto-dev-$(date +%Y%m%d-%H%M%S)
+
+echo ">>> РЕЖИМ РАЗРАБОТКИ: применение файлов"
+echo ">>> Проект: $PROJECT"
+echo ">>> Автобэкап: $BACKUP"
+
+if [ ! -d "$PENDING" ]; then
+  echo "!!! папка pending не найдена"
+  exit 1
+fi
+
+FILES=$(find "$PENDING" -type f \( -name '*.java' -o -name '*.xml' \))
+if [ -z "$FILES" ]; then
+  echo "!!! нет файлов для применения в $PENDING"
+  exit 1
+fi
+
+# Бэкап проекта
+mkdir -p "$BACKUP"
+cp -r "$PROJECT/src" "$BACKUP/" 2>/dev/null || true
+cp -r "$PROJECT/res" "$BACKUP/" 2>/dev/null || true
+cp "$PROJECT/AndroidManifest.xml" "$BACKUP/" 2>/dev/null || true
+
+# Копируем файлы
+COUNT=0
+while IFS= read -r file; do
+  REL="${file#$PENDING/}"
+  DEST="$PROJECT/$REL"
+  echo ">>> Применяю: $REL"
+  mkdir -p "$(dirname "$DEST")"
+  cp "$file" "$DEST"
+  COUNT=$((COUNT + 1))
+done <<< "$FILES"
+
+echo ">>> Применено файлов: $COUNT"
+
+# Сборка
+echo ">>> Сборка APK..."
+cd "$PROJECT"
+if bash build.sh 2>&1; then
+  echo ">>> ✓ СБОРКА УСПЕШНА"
+  APK=$(ls -t /sdcard/Download/ai-tasker-build-*.apk 2>/dev/null | head -1)
+  echo ">>> APK: $APK"
+  echo ">>> Установи вручную из /sdcard/Download/"
+  exit 0
+else
+  echo ">>> !!! СБОРКА УПАЛА"
+  echo ">>> Откат из бэкапа: $BACKUP"
+  cp -r "$BACKUP/src/." "$PROJECT/src/" 2>/dev/null || true
+  cp -r "$BACKUP/res/." "$PROJECT/res/" 2>/dev/null || true
+  cp "$BACKUP/AndroidManifest.xml" "$PROJECT/" 2>/dev/null || true
+  echo ">>> Откат выполнен"
+  exit 1
+fi
