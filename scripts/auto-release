@@ -235,7 +235,6 @@ def update_readme_whatsnew(version, notes_text):
     else:
         body = "- См. полный список в CHANGELOG.md"
     block = (f"## ✨ Что нового в v{version}\n\n"
-             f"{summary}\n\n"
              f"{body}\n\n"
              f"Подробнее — в [CHANGELOG.md](CHANGELOG.md).\n\n")
     pat = re.compile(r"## ✨ Что нового в v[\d.]+.*?(?=\n## )", re.DOTALL)
