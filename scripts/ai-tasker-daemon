@@ -40,14 +40,6 @@ def log(msg):
         pass
 
 
-def write_result(task_id, data):
-    path = os.path.join(OUTBOX, f"task-{task_id}.json")
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.rename(tmp, path)  # атомарная замена
-    log(f"результат записан: {path}")
-
 
 
 def run_copy_exec(task_id):
@@ -259,20 +251,144 @@ def run_task(task_id, task_text):
     log(f"задача {task_id}: rc={rc}, status={status}")
 
 
+def _self_protect():
+    """Убить старые копии демона и убрать опасные задачи."""
+    import glob as _glob
+    import signal as _sig
+    mypid = os.getpid()
+    try:
+        for pid_dir in _glob.glob("/proc/[0-9]*"):
+            try:
+                pid = int(os.path.basename(pid_dir))
+                if pid == mypid:
+                    continue
+                cmdline_path = os.path.join(pid_dir, "cmdline")
+                with open(cmdline_path, "rb") as f:
+                    cmd = f.read().decode("utf-8", "replace").replace("\x00", " ")
+                if "ai-tasker-daemon" in cmd and "python" in cmd:
+                    os.kill(pid, _sig.SIGKILL)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Чистим inbox от опасных задач, содержащих pkill/killall
+    try:
+        if os.path.isdir(INBOX):
+            for name in os.listdir(INBOX):
+                p = os.path.join(INBOX, name)
+                try:
+                    with open(p, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    if ("pkill" in content and "ai-tasker" in content) or \
+                       ("killall" in content and "ai-tasker" in content):
+                        os.unlink(p)
+                        log(f"self-protect: удалил опасную задачу {name}")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def run_apply_patches(task_id):
+    """Применяет файлы из /sdcard/ai-tasker/pending/ и собирает APK."""
+    log(f"=== APPLY_PATCHES {task_id}")
+    script = os.path.expanduser("~/bin/apply-patches")
+    if not os.path.exists(script):
+        log(f"!!! apply-patches не найден: {script}")
+        write_result(task_id, "error", "apply-patches не найден", 1)
+        return
+    try:
+        r = subprocess.run(["bash", script], capture_output=True, timeout=1800)
+        out = r.stdout.decode("utf-8", "replace")
+        err = r.stderr.decode("utf-8", "replace")
+        rc = r.returncode
+        combined = (out + ("\n" + err if err else "")).strip()
+        status = "success" if rc == 0 else "error"
+        log(f"APPLY_PATCHES {task_id}: rc={rc}, len={len(combined)}")
+        write_result(task_id, status, combined, rc)
+    except subprocess.TimeoutExpired:
+        log(f"APPLY_PATCHES {task_id}: TIMEOUT")
+        write_result(task_id, "error", "(TIMEOUT 30 минут)", 124)
+    except Exception as e:
+        log(f"APPLY_PATCHES {task_id} err: {e}")
+        write_result(task_id, "error", str(e), 1)
+
+
+def write_result(*args):
+    """Записывает результат в outbox. Поддерживает две сигнатуры:
+       write_result(task_id, dict)  и  write_result(task_id, status, output, rc)."""
+    import json as _json
+    from datetime import datetime as _dt
+    try:
+        if len(args) == 2 and isinstance(args[1], dict):
+            data = dict(args[1])
+            if "id" not in data:
+                data["id"] = args[0]
+        else:
+            task_id, status, output, rc = args
+            data = {
+                "id": task_id,
+                "status": status,
+                "started": _dt.now().isoformat(timespec="seconds"),
+                "finished": _dt.now().isoformat(timespec="seconds"),
+                "task": "apply_patches:",
+                "output": output[:8000] if output else "",
+                "exit_code": rc
+            }
+        task_id = data["id"]
+        out_path = os.path.join(OUTBOX, f"task-{task_id}.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            _json.dump(data, f, ensure_ascii=False, indent=2)
+        log(f"результат записан: {out_path}")
+    except Exception as e:
+        log(f"не смог записать результат {task_id}: {e}")
+
+
 def main():
+    _self_protect()
     log(f"=== ai-tasker-daemon запущен ===")
     log(f"INBOX: {INBOX}")
     log(f"OUTBOX: {OUTBOX}")
 
+    PAUSE_FLAG = "/sdcard/ai-tasker/.pause"
+    STOP_FLAG = "/sdcard/ai-tasker/.stop"
+    # чистим флаги при старте
+    for _f in (PAUSE_FLAG, STOP_FLAG):
+        try:
+            if os.path.exists(_f): os.unlink(_f)
+        except Exception: pass
+
     # Текущий pid
     pid_file = os.path.expanduser("~/.ai-tasker.pid")
-    with open(pid_file, "w") as f:
-        f.write(str(os.getpid()))
+    try:
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
 
     processed = set()
 
     while True:
         try:
+            # STOP — завершаем демон
+            if os.path.exists(STOP_FLAG):
+                log("=== STOP флаг → завершаю ===")
+                try:
+                    os.unlink(STOP_FLAG)
+                except Exception:
+                    pass
+                try:
+                    os.unlink(pid_file)
+                except Exception:
+                    pass
+                break
+
+            # PAUSE — не берём новые задачи
+            if os.path.exists(PAUSE_FLAG):
+                time.sleep(1)
+                continue
+
             # Сканируем inbox
             for fname in sorted(os.listdir(INBOX)):
                 if not fname.startswith("task-") or not fname.endswith(".txt"):
@@ -301,6 +417,38 @@ def main():
                         run_copy_exec(task_id)
                     except Exception as e:
                         log(f"ошибка run_copy_exec {task_id}: {e}")
+                    try:
+                        shutil.move(fpath, os.path.join(DONE, fname))
+                    except Exception:
+                        pass
+                    continue
+
+                # EXPORT_SOURCE: копируем исходники в /sdcard для приложения
+                if task_text.startswith("export_source:"):
+                    processed.add(fname)
+                    try:
+                        script = os.path.expanduser("~/bin/export-source")
+                        if os.path.exists(script):
+                            subprocess.run(["bash", script], capture_output=True, timeout=30)
+                            log("export_source: исходники обновлены")
+                        else:
+                            log("export_source: скрипт не найден")
+                    except Exception as e:
+                        log(f"export_source err: {e}")
+                    try:
+                        shutil.move(fpath, os.path.join(DONE, fname))
+                    except Exception:
+                        pass
+                    continue
+
+                # APPLY_PATCHES: применить файлы из pending/ и собрать APK
+                if task_text.startswith("apply_patches:"):
+                    task_id = fname[len("task-"):-len(".txt")]
+                    processed.add(fname)
+                    try:
+                        run_apply_patches(task_id)
+                    except Exception as e:
+                        log(f"ошибка run_apply_patches {task_id}: {e}")
                     try:
                         shutil.move(fpath, os.path.join(DONE, fname))
                     except Exception:
