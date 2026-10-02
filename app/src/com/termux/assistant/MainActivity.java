@@ -27,6 +27,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.FileReader;
+
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
@@ -39,12 +40,15 @@ public class MainActivity extends Activity {
     private WebView webView;
     private ProgressBar progressBar;
     private TextView statusLabel;
+
     private long lastSendTime = 0;
     private long cycleStartTime = 0;
     private String cycleTaskId = null;
+
     private String currentDevFileName = null;
     private String lastDevReply = "";
     private int stableCount = 0;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable cycleRunnable;
 
@@ -70,7 +74,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        android.util.Log.i("Dev", "test");
+        android.util.Log.i("Dev", "cycle4");
+
         SharedPreferences _t = getSharedPreferences("app_prefs", MODE_PRIVATE);
         String _th = _t.getString("theme", "system");
         if ("light".equals(_th)) setTheme(R.style.AppTheme_Light);
@@ -127,6 +132,7 @@ public class MainActivity extends Activity {
         ws.setBuiltInZoomControls(false);
         ws.setDisplayZoomControls(false);
         ws.setMediaPlaybackRequiresUserGesture(false);
+
         if (Build.VERSION.SDK_INT >= 21) {
             ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         }
@@ -176,8 +182,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    
-
     private void startDevDialog() {
         setActiveMode("dev");
         webView.evaluateJavascript("window.TermuxGetInput();",
@@ -212,6 +216,7 @@ public class MainActivity extends Activity {
         }
 
         if (statusLabel != null) statusLabel.setText("Обновляю исходники...");
+
         handler.postDelayed(new Runnable() {
             @Override public void run() {
                 pickFileDelayed(task);
@@ -225,20 +230,24 @@ public class MainActivity extends Activity {
             toast("Проект не найден");
             return;
         }
+
         java.io.File[] files = dir.listFiles(new java.io.FilenameFilter() {
             @Override public boolean accept(java.io.File d, String name) {
                 return name.endsWith(".java");
             }
         });
+
         if (files == null || files.length == 0) {
             toast("Нет Java-файлов");
             return;
         }
+
         java.util.Arrays.sort(files, new java.util.Comparator<java.io.File>() {
             @Override public int compare(java.io.File a, java.io.File b) {
                 return a.getName().compareTo(b.getName());
             }
         });
+
         final String[] names = new String[files.length];
         for (int i = 0; i < files.length; i++) names[i] = files[i].getName();
 
@@ -273,6 +282,7 @@ public class MainActivity extends Activity {
         currentDevFileName = fileName;
         lastDevReply = "";
         stableCount = 0;
+
         if (statusLabel != null) statusLabel.setText("Отправлено в DeepSeek (" + fileName + ")");
 
         StringBuilder prompt = new StringBuilder();
@@ -286,8 +296,10 @@ public class MainActivity extends Activity {
         prompt.append("Никаких объяснений.");
 
         String raw = prompt.toString();
+
         // Раскрываем литеральные escape-последовательности в реальные символы
         raw = raw.replace("\\\n", "\n").replace("\\\r", "\r").replace("\\\t", "\t");
+
         // Правильно экранируем для JS-строки
         String escaped = raw
             .replace("\\", "\\\\")
@@ -297,6 +309,7 @@ public class MainActivity extends Activity {
             .replace("\t", "\\\t");
 
         webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
+
         waitForDevReply(0);
     }
 
@@ -306,9 +319,11 @@ public class MainActivity extends Activity {
             setActiveMode("none");
             return;
         }
+
         webView.postDelayed(new Runnable() {
             @Override public void run() {
                 if (statusLabel != null) statusLabel.setText("Ждём ответа... (" + (attempt * 3) + " сек)");
+
                 webView.evaluateJavascript("window.TermuxReadLast();",
                     new android.webkit.ValueCallback<String>() {
                     @Override public void onReceiveValue(String value) {
@@ -370,7 +385,6 @@ public class MainActivity extends Activity {
         }, 3000);
     }
 
-
     private void parseAndSaveFiles(String reply) {
         try {
             String content = reply;
@@ -380,7 +394,6 @@ public class MainActivity extends Activity {
             if (pkgIdx < 0) pkgIdx = content.indexOf("package ");
             if (pkgIdx < 0) pkgIdx = content.indexOf("public class ");
             if (pkgIdx < 0) pkgIdx = content.indexOf("<?xml");
-
             if (pkgIdx < 0) {
                 new AlertDialog.Builder(MainActivity.this)
                     .setTitle("Не нашёл начало кода")
@@ -392,7 +405,6 @@ public class MainActivity extends Activity {
             }
 
             content = content.substring(pkgIdx).trim();
-
 
             if (content.length() < 500) {
                 new AlertDialog.Builder(MainActivity.this)
@@ -443,7 +455,6 @@ public class MainActivity extends Activity {
                 .show();
 
             if (statusLabel != null) statusLabel.setText("Найдено: " + fileName + " (" + content.length() + ")");
-
         } catch (Exception e) {
             toast("Ошибка: " + e.getMessage());
         }
@@ -458,6 +469,7 @@ public class MainActivity extends Activity {
             java.io.FileWriter w = new java.io.FileWriter(f);
             w.write("apply_patches:");
             w.close();
+
             if (statusLabel != null) statusLabel.setText("Применяю и собираю APK...");
             toast("Применяю файлы и собираю APK");
             pollApplyResult(id, 0, System.currentTimeMillis());
@@ -473,9 +485,11 @@ public class MainActivity extends Activity {
             setActiveMode("none");
             return;
         }
+
         if (statusLabel != null) {
             statusLabel.setText("Сборка APK... (" + elapsed + " сек)");
         }
+
         webView.postDelayed(new Runnable() {
             @Override public void run() {
                 java.io.File out = new java.io.File("/sdcard/ai-tasker/outbox/task-" + id + ".json");
@@ -487,6 +501,7 @@ public class MainActivity extends Activity {
                         while ((line = r.readLine()) != null) sb.append(line).append("\n");
                         r.close();
                         String raw = sb.toString();
+
                         String status = "";
                         int si = raw.indexOf("\"status\"");
                         if (si >= 0) {
@@ -495,10 +510,11 @@ public class MainActivity extends Activity {
                             int q2 = raw.indexOf('"', q1 + 1);
                             if (q1 > 0 && q2 > q1) status = raw.substring(q1 + 1, q2);
                         }
+
                         String output = "";
-                        int oi = raw.indexOf("\"output\"");
+                        int oi = raw.indexOf("\"output\":");
                         if (oi >= 0) {
-                            int q1 = raw.indexOf('"', oi + 8);
+                            int q1 = raw.indexOf('"', oi + 9);
                             if (q1 > 0) {
                                 StringBuilder ob = new StringBuilder();
                                 int k = q1 + 1;
@@ -526,13 +542,15 @@ public class MainActivity extends Activity {
                                 output = ob.toString();
                             }
                         }
-                        if ("ok".equals(status)) {
+
+                        if ("success".equals(status)) {
                             String apkPath = "/sdcard/Download/";
                             int ai = output.lastIndexOf("APK:");
                             if (ai >= 0) {
                                 int nl = output.indexOf('\n', ai);
                                 apkPath = (nl > 0 ? output.substring(ai + 4, nl) : output.substring(ai + 4)).trim();
                             }
+
                             if (statusLabel != null) statusLabel.setText("APK готов: " + apkPath);
                             new AlertDialog.Builder(MainActivity.this)
                                 .setTitle("APK готов")
@@ -542,6 +560,7 @@ public class MainActivity extends Activity {
                             setActiveMode("none");
                             return;
                         }
+
                         if ("error".equals(status)) {
                             if (statusLabel != null) statusLabel.setText("Сборка упала");
                             final String errOut = output;
@@ -562,7 +581,6 @@ public class MainActivity extends Activity {
         }, 3000);
     }
 
-
     private void setActiveMode(String mode) {
         Button freeBtn = findViewById(R.id.btn_ds_free);
         Button devBtn = findViewById(R.id.btn_ds_dev);
@@ -576,6 +594,7 @@ public class MainActivity extends Activity {
         } else {
             freeTarget = 1f; devTarget = 1f;
         }
+
         animateWeights(freeBtn, devBtn, freeTarget, devTarget);
     }
 
@@ -599,14 +618,13 @@ public class MainActivity extends Activity {
         anim.start();
     }
 
-    
-
     private void openMenu() {
         final String[] items = new String[]{
             "📋  История задач",
             "📖  Инструкция",
             "⚙️  Настройки"
         };
+
         new AlertDialog.Builder(this)
             .setTitle("Меню")
             .setItems(items, new DialogInterface.OnClickListener() {
@@ -628,6 +646,7 @@ public class MainActivity extends Activity {
                 toast("Буфер пуст");
                 return;
             }
+
             String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
             webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
             if (statusLabel != null) statusLabel.setText("Вставлено (" + text.length() + " симв.)");
@@ -643,6 +662,7 @@ public class MainActivity extends Activity {
 
     private void startCycle(final boolean autoSend, final String prefix) {
         setActiveMode("free");
+
         long now = System.currentTimeMillis();
         if (now - lastSendTime < PAUSE_BETWEEN_MS) {
             long wait = (PAUSE_BETWEEN_MS - (now - lastSendTime)) / 1000;
@@ -658,11 +678,13 @@ public class MainActivity extends Activity {
                     runFullCycle(text.trim(), autoSend, prefix);
                     return;
                 }
+
                 String fromClip = readClipboard();
                 if (fromClip == null || fromClip.trim().isEmpty()) {
                     toast("Поле и буфер пусты — скопируй код из DeepSeek");
                     return;
                 }
+
                 runFullCycle(fromClip.trim(), autoSend, prefix);
             }
         });
@@ -674,6 +696,7 @@ public class MainActivity extends Activity {
         try {
             File dir = new File(INBOX);
             dir.mkdirs();
+
             cycleTaskId = (prefix.equals("dev:") ? "dev" : "buf") + System.currentTimeMillis();
             File f = new File(dir, "task-" + cycleTaskId + ".txt");
             FileWriter w = new FileWriter(f);
@@ -687,8 +710,8 @@ public class MainActivity extends Activity {
         if (statusLabel != null) {
             statusLabel.setText(prefix.equals("dev:") ? "🛠 Отправлено в ai-dev…" : "⏳ Выполняется в Termux…");
         }
-        cycleStartTime = System.currentTimeMillis();
 
+        cycleStartTime = System.currentTimeMillis();
         cycleRunnable = new Runnable() {
             @Override public void run() {
                 long elapsed = System.currentTimeMillis() - cycleStartTime;
@@ -696,19 +719,23 @@ public class MainActivity extends Activity {
                     if (statusLabel != null) statusLabel.setText("✗ Таймаут 2 мин");
                     return;
                 }
+
                 File out = new File(OUTBOX, "task-" + cycleTaskId + ".json");
                 if (out.exists()) {
                     String result = readResultFromJson(out);
                     if (result != null) {
                         webView.evaluateJavascript("window.TermuxClearInput();", null);
+
                         String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
                         webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+
                         if (statusLabel != null) {
                             String prefixName = prefix.equals("dev:") ? "🛠" : "✓";
                             statusLabel.setText(autoSend
                                 ? prefixName + " Готово — отправляю"
                                 : prefixName + " Готово — жми отправить");
                         }
+
                         if (autoSend) {
                             webView.postDelayed(new Runnable() {
                                 @Override public void run() {
@@ -718,15 +745,18 @@ public class MainActivity extends Activity {
                         } else {
                             toast("Готово. Проверь поле");
                         }
+
                         webView.postDelayed(new Runnable() {
                             @Override public void run() { setActiveMode("none"); }
                         }, 2000);
                         return;
                     }
                 }
+
                 handler.postDelayed(this, 1500);
             }
         };
+
         handler.postDelayed(cycleRunnable, 1500);
     }
 
@@ -737,6 +767,7 @@ public class MainActivity extends Activity {
             String line;
             while ((line = r.readLine()) != null) sb.append(line);
             r.close();
+
             org.json.JSONObject o = new org.json.JSONObject(sb.toString());
             String output = o.optString("output", "");
             String status = o.optString("status", "");
@@ -766,6 +797,7 @@ public class MainActivity extends Activity {
         if (s.length() >= 2 && s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"') {
             s = s.substring(1, s.length() - 1);
         }
+
         StringBuilder out = new StringBuilder(s.length());
         int i = 0;
         while (i < s.length()) {
@@ -798,7 +830,6 @@ public class MainActivity extends Activity {
         }
         return out.toString();
     }
-
 
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
@@ -847,7 +878,6 @@ public class MainActivity extends Activity {
         + "      }"
         + "      if(target)target.style.setProperty('display','none','important');"
         + "    }"
-
         + "    var cs=getComputedStyle(e);"
         + "    if(isBlue(cs.backgroundColor)) e.style.setProperty('background-color','#22C55E','important');"
         + "    if(isBlue(cs.color)) e.style.setProperty('color','#22C55E','important');"
@@ -974,7 +1004,6 @@ public class MainActivity extends Activity {
         + "return last||'';"
         + "};";
 
-
     static TaskItem parseTaskFile(File f) {
         try {
             FileReader r = new FileReader(f);
@@ -991,6 +1020,7 @@ public class MainActivity extends Activity {
             t.status = o.optString("status", "pending");
             t.output = o.optString("output", "");
             t.started = System.currentTimeMillis();
+
             long startedMs = 0;
             long finishedMs = 0;
             String startedStr = o.optString("started", "");
@@ -1006,5 +1036,4 @@ public class MainActivity extends Activity {
             return null;
         }
     }
-
 }
