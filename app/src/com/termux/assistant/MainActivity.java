@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        android.util.Log.i("Dev", "test");
         SharedPreferences _t = getSharedPreferences("app_prefs", MODE_PRIVATE);
         String _th = _t.getString("theme", "system");
         if ("light".equals(_th)) setTheme(R.style.AppTheme_Light);
@@ -286,22 +287,22 @@ public class MainActivity extends Activity {
 
         String raw = prompt.toString();
         // Раскрываем литеральные escape-последовательности в реальные символы
-        raw = raw.replace("\\\\n", "\n").replace("\\\\r", "\r").replace("\\\\t", "\t");
+        raw = raw.replace("\\\n", "\n").replace("\\\r", "\r").replace("\\\t", "\t");
         // Правильно экранируем для JS-строки
         String escaped = raw
             .replace("\\", "\\\\")
             .replace("'", "\\'")
-            .replace("\n", "\\\\n")
-            .replace("\r", "\\\\r")
-            .replace("\t", "\\\\t");
+            .replace("\n", "\\\n")
+            .replace("\r", "\\\r")
+            .replace("\t", "\\\t");
 
         webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
         waitForDevReply(0);
     }
 
     private void waitForDevReply(final int attempt) {
-        if (attempt > 60) {
-            if (statusLabel != null) statusLabel.setText("Таймаут 180 сек");
+        if (attempt > 80) { // ~240 секунд
+            if (statusLabel != null) statusLabel.setText("Таймаут 240 сек");
             setActiveMode("none");
             return;
         }
@@ -315,33 +316,51 @@ public class MainActivity extends Activity {
                         if (reply == null) reply = "";
                         reply = reply.trim();
 
-                        if (reply.length() < 200) {
+                        // Слишком короткий ответ — ждём ещё
+                        if (reply.length() < 500) {
                             waitForDevReply(attempt + 1);
                             return;
                         }
 
                         boolean hasCode = reply.contains("package ") || reply.contains("public class ") || reply.contains("import android");
-                        boolean enoughTime = attempt >= 5; // 15 секунд минимум
-                        boolean bigEnough = reply.length() > 5000;
+                        if (!hasCode) {
+                            waitForDevReply(attempt + 1);
+                            return;
+                        }
 
-                        // Если ответ большой — парсим сразу, не ждём
-                        if (bigEnough && attempt >= 5) {
+                        // Минимум 15 секунд ожидания
+                        if (attempt < 5) {
+                            lastDevReply = reply;
+                            stableCount = 0;
+                            waitForDevReply(attempt + 1);
+                            return;
+                        }
+
+                        // Проверка завершения: последний непустой символ — }
+                        String tail = reply;
+                        while (tail.length() > 0 && Character.isWhitespace(tail.charAt(tail.length() - 1))) {
+                            tail = tail.substring(0, tail.length() - 1);
+                        }
+                        boolean looksComplete = tail.endsWith("}");
+
+                        // Стабильность: длина не меняется несколько циклов подряд
+                        if (reply.equals(lastDevReply)) {
+                            stableCount++;
+                        } else {
+                            stableCount = 0;
+                            lastDevReply = reply;
+                        }
+
+                        // Готово, если ответ завершён и стабилен 2 цикла
+                        if (looksComplete && stableCount >= 2) {
                             parseAndSaveFiles(reply);
                             return;
                         }
 
-                        if (hasCode && enoughTime) {
-                            // Дополнительно ждём 1 цикл (3 сек) и проверяем, что длина не выросла сильно
-                            if (reply.equals(lastDevReply)) {
-                                parseAndSaveFiles(reply);
-                                return;
-                            }
-                            lastDevReply = reply;
-                            if (attempt >= 15) {
-                                // 45 секунд прошло — парсим что есть
-                                parseAndSaveFiles(reply);
-                                return;
-                            }
+                        // Аварийный выход: долго ждём, ответ большой и стабилен 5 циклов
+                        if (attempt >= 40 && stableCount >= 5 && reply.length() > 2000) {
+                            parseAndSaveFiles(reply);
+                            return;
                         }
 
                         waitForDevReply(attempt + 1);
@@ -350,6 +369,7 @@ public class MainActivity extends Activity {
             }
         }, 3000);
     }
+
 
     private void parseAndSaveFiles(String reply) {
         try {
@@ -433,17 +453,115 @@ public class MainActivity extends Activity {
         try {
             java.io.File dir = new java.io.File(INBOX);
             dir.mkdirs();
-            String id = "dev" + System.currentTimeMillis();
+            final String id = "dev" + System.currentTimeMillis();
             java.io.File f = new java.io.File(dir, "task-" + id + ".txt");
             java.io.FileWriter w = new java.io.FileWriter(f);
             w.write("apply_patches:");
             w.close();
             if (statusLabel != null) statusLabel.setText("Применяю и собираю APK...");
             toast("Применяю файлы и собираю APK");
+            pollApplyResult(id, 0, System.currentTimeMillis());
         } catch (Exception e) {
             toast("Ошибка: " + e.getMessage());
         }
     }
+
+    private void pollApplyResult(final String id, final int attempt, final long startedAt) {
+        final long elapsed = (System.currentTimeMillis() - startedAt) / 1000;
+        if (elapsed > 300) {
+            if (statusLabel != null) statusLabel.setText("Таймаут сборки (5 мин)");
+            setActiveMode("none");
+            return;
+        }
+        if (statusLabel != null) {
+            statusLabel.setText("Сборка APK... (" + elapsed + " сек)");
+        }
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                java.io.File out = new java.io.File("/sdcard/ai-tasker/outbox/task-" + id + ".json");
+                if (out.exists()) {
+                    try {
+                        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(out));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = r.readLine()) != null) sb.append(line).append("\n");
+                        r.close();
+                        String raw = sb.toString();
+                        String status = "";
+                        int si = raw.indexOf("\"status\"");
+                        if (si >= 0) {
+                            int ci = raw.indexOf(':', si);
+                            int q1 = raw.indexOf('"', ci);
+                            int q2 = raw.indexOf('"', q1 + 1);
+                            if (q1 > 0 && q2 > q1) status = raw.substring(q1 + 1, q2);
+                        }
+                        String output = "";
+                        int oi = raw.indexOf("\"output\"");
+                        if (oi >= 0) {
+                            int q1 = raw.indexOf('"', oi + 8);
+                            if (q1 > 0) {
+                                StringBuilder ob = new StringBuilder();
+                                int k = q1 + 1;
+                                while (k < raw.length()) {
+                                    char c = raw.charAt(k);
+                                    if (c == '\\' && k + 1 < raw.length()) {
+                                        char n = raw.charAt(k + 1);
+                                        if (n == 'n') { ob.append('\n'); k += 2; continue; }
+                                        if (n == 't') { ob.append('\t'); k += 2; continue; }
+                                        if (n == 'r') { k += 2; continue; }
+                                        if (n == '"') { ob.append('"'); k += 2; continue; }
+                                        if (n == '\\') { ob.append('\\'); k += 2; continue; }
+                                        if (n == '/') { ob.append('/'); k += 2; continue; }
+                                        if (n == 'u' && k + 5 < raw.length()) {
+                                            try {
+                                                ob.append((char) Integer.parseInt(raw.substring(k + 2, k + 6), 16));
+                                                k += 6; continue;
+                                            } catch (Exception e2) {}
+                                        }
+                                        ob.append(n); k += 2; continue;
+                                    }
+                                    if (c == '"') break;
+                                    ob.append(c); k++;
+                                }
+                                output = ob.toString();
+                            }
+                        }
+                        if ("ok".equals(status)) {
+                            String apkPath = "/sdcard/Download/";
+                            int ai = output.lastIndexOf("APK:");
+                            if (ai >= 0) {
+                                int nl = output.indexOf('\n', ai);
+                                apkPath = (nl > 0 ? output.substring(ai + 4, nl) : output.substring(ai + 4)).trim();
+                            }
+                            if (statusLabel != null) statusLabel.setText("APK готов: " + apkPath);
+                            new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("APK готов")
+                                .setMessage(apkPath)
+                                .setPositiveButton("OK", null)
+                                .show();
+                            setActiveMode("none");
+                            return;
+                        }
+                        if ("error".equals(status)) {
+                            if (statusLabel != null) statusLabel.setText("Сборка упала");
+                            final String errOut = output;
+                            new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Сборка упала")
+                                .setMessage(errOut.length() > 1500 ? errOut.substring(errOut.length() - 1500) : errOut)
+                                .setPositiveButton("OK", null)
+                                .show();
+                            setActiveMode("none");
+                            return;
+                        }
+                    } catch (Exception e) {
+                        // файл ещё пишется — ждём дальше
+                    }
+                }
+                pollApplyResult(id, attempt + 1, startedAt);
+            }
+        }, 3000);
+    }
+
 
     private void setActiveMode(String mode) {
         Button freeBtn = findViewById(R.id.btn_ds_free);
@@ -510,7 +628,7 @@ public class MainActivity extends Activity {
                 toast("Буфер пуст");
                 return;
             }
-            String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+            String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
             webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
             if (statusLabel != null) statusLabel.setText("Вставлено (" + text.length() + " симв.)");
         } catch (Exception e) {
@@ -583,7 +701,7 @@ public class MainActivity extends Activity {
                     String result = readResultFromJson(out);
                     if (result != null) {
                         webView.evaluateJavascript("window.TermuxClearInput();", null);
-                        String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+                        String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\n");
                         webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
                         if (statusLabel != null) {
                             String prefixName = prefix.equals("dev:") ? "🛠" : "✓";
