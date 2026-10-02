@@ -208,7 +208,7 @@ public class MainActivity extends Activity {
                 v.postDelayed(new Runnable() { @Override public void run() {
                     v.evaluateJavascript("window.__termuxApplyTheme&&window.__termuxApplyTheme()", null);
                 }}, 2000);
-                startContextPoller();
+                // startContextPoller(); // отключено: ложные срабатывания
             }
         });
 
