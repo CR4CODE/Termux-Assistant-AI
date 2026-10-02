@@ -1,402 +1,489 @@
-// test-pipeline-ok
 package com.termux.assistant;
 
-
 import android.app.Activity;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
-import android.os.Build;
+import android.content.DialogInterface;
 import android.content.Intent;
-import android.os.Bundle;import android.content.SharedPreferences;
-import android.provider.Settings;
-import android.net.Uri;
+import android.content.SharedPreferences;
 import android.os.Build;
-import android.os.Environment;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextUtils;
 import android.view.View;
+import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.EditText;
-import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;import android.speech.RecognizerIntent;import android.speech.SpeechRecognizer;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
+import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.io.FileReader;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
 
-    private static final String ROOT_DIR = "/sdcard/ai-tasker";
-    private static final String INBOX = ROOT_DIR + "/inbox";
-    private static final String OUTBOX = ROOT_DIR + "/outbox";
+    private static final String START_URL = "https://chat.deepseek.com/";
+    private static final String INBOX = "/sdcard/ai-tasker/inbox";
+    private static final String OUTBOX = "/sdcard/ai-tasker/outbox";
+    private static final long PAUSE_BETWEEN_MS = 5000;
 
-    private EditText inputTask;
-    private Button btnRun;
-    private Button btnSettings;
-    private ListView listTasks;
-    private TextView logText;
-    private View logScroll;
-    private View logPanel;
-    private boolean logExpanded = true;
-    private int aiMode = 0; // 0=AI, 1=Dev, 2=Shell
-    private Button btnMode;
-    private View emptyHistory;
-    private TextView envStatus;
-
-    private final List<TaskItem> tasks = new ArrayList<>();
-    private String lastAppliedTheme = null;
-    private TaskAdapter adapter;
+    private WebView webView;
+    private ProgressBar progressBar;
+    private TextView statusLabel;
+    private long lastSendTime = 0;
+    private long cycleStartTime = 0;
+    private String cycleTaskId = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable refreshRunnable;
+    private Runnable cycleRunnable;
+
+    public class JsBridge {
+        @JavascriptInterface
+        public void log(String msg) {
+            android.util.Log.i("DeepSeekWeb", msg);
+        }
+
+        @JavascriptInterface
+        public void showDialog(final String title, final String msg) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    new AlertDialog.Builder(MainActivity.this)
+                        .setTitle(title)
+                        .setMessage(msg)
+                        .setPositiveButton("OK", null)
+                        .show();
+                }
+            });
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        SharedPreferences tp = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        String th = tp.getString("theme", "system");
-        if ("light".equals(th)) setTheme(R.style.AppTheme_Light);
+        SharedPreferences _t = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        String _th = _t.getString("theme", "system");
+        if ("light".equals(_th)) setTheme(R.style.AppTheme_Light);
         else setTheme(R.style.AppTheme_Dark);
 
         super.onCreate(savedInstanceState);
-        // Убираем splash-фон, чтобы layout сам решал, что рисовать
-        getWindow().setBackgroundDrawableResource(android.R.color.transparent);
-
-        // Проверка первого запуска → Welcome wizard
-        android.content.SharedPreferences _wp = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        if (!_wp.getBoolean("welcome_done", false)) {
-            startActivity(new Intent(MainActivity.this, WelcomeActivity.class));
-            return;
-        }
-
         setContentView(R.layout.activity_main);
 
-        View btnMicView = findViewById(R.id.btn_mic);
-        if (btnMicView != null) {
-            btnMicView.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startVoiceInput();
-                }
+        webView = findViewById(R.id.ds_webview);
+        progressBar = findViewById(R.id.ds_progress);
+        statusLabel = findViewById(R.id.ds_status);
+
+        Button menuBtn = findViewById(R.id.btn_menu);
+        if (menuBtn != null) {
+            menuBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { openMenu(); }
             });
         }
 
-        inputTask = findViewById(R.id.input_task);
-        btnRun = findViewById(R.id.btn_run);
-        btnSettings = findViewById(R.id.btn_settings);
-        Button btnOpenHistory = findViewById(R.id.btn_open_history);
-        Button btnDeepSeek = findViewById(R.id.btn_deepseek);
-        if (btnDeepSeek != null) {
-            btnDeepSeek.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, DeepSeekWebActivity.class));
-                }
+        Button fromClipBtn = findViewById(R.id.btn_ds_from_clip);
+        if (fromClipBtn != null) {
+            fromClipBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { insertFromClipboard(); }
             });
         }
-        if (btnOpenHistory != null) {
-            btnOpenHistory.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    startActivity(new Intent(MainActivity.this, HistoryActivity.class));
-                }
-            });
-        }
-        listTasks = findViewById(R.id.list_tasks);
-        emptyHistory = findViewById(R.id.empty_history);
-        envStatus = findViewById(R.id.env_status);
 
-        // Live-лог Termux
-        logText = findViewById(R.id.log_text);
-        logScroll = findViewById(R.id.log_scroll);
-        logPanel = findViewById(R.id.log_panel);
-        View logHeader = findViewById(R.id.log_header);
-        final TextView logToggle = findViewById(R.id.log_toggle);
-        if (logHeader != null) {
-            logHeader.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    // Тап по шапке терминала переключает на режим Shell
-                    if (aiMode != 2) {
-                        aiMode = 2;
-                        getSharedPreferences("app_prefs", MODE_PRIVATE)
-                            .edit().putInt("ai_mode", aiMode).apply();
-                        applyAiModeUi();
+        Button freeBtn = findViewById(R.id.btn_ds_free);
+        if (freeBtn != null) {
+            freeBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { startCycle(true); }
+            });
+        }
+
+        Button clearBtn = findViewById(R.id.btn_ds_clear);
+        if (clearBtn != null) {
+            clearBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { clearInput(); }
+            });
+        }
+
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setDatabaseEnabled(true);
+        ws.setLoadWithOverviewMode(true);
+        ws.setUseWideViewPort(true);
+        ws.setBuiltInZoomControls(false);
+        ws.setDisplayZoomControls(false);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        if (Build.VERSION.SDK_INT >= 21) {
+            ws.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        }
+
+        webView.addJavascriptInterface(new JsBridge(), "TermuxBridge");
+
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= 21) {
+            cm.setAcceptThirdPartyCookies(webView, true);
+        }
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override public void onProgressChanged(WebView v, int newProgress) {
+                if (progressBar != null) {
+                    if (newProgress < 100) {
+                        progressBar.setVisibility(View.VISIBLE);
+                        progressBar.setProgress(newProgress);
                     } else {
-                        logExpanded = !logExpanded;
-                        if (logScroll != null) {
-                            logScroll.setVisibility(logExpanded ? View.VISIBLE : View.GONE);
-                        }
-                        if (logToggle != null) {
-                            logToggle.setText(logExpanded ? "▾" : "▸");
-                        }
+                        progressBar.setVisibility(View.GONE);
                     }
                 }
-            });
-        }
-        refreshLog();
+            }
+        });
 
-        // Кнопка режима AI / Dev / Shell
-        btnMode = findViewById(R.id.btn_mode);
-        if (btnMode != null) {
-            aiMode = getSharedPreferences("app_prefs", MODE_PRIVATE).getInt("ai_mode", 0);
-            applyAiModeUi();
-            btnMode.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    aiMode = (aiMode + 1) % 3;
-                    getSharedPreferences("app_prefs", MODE_PRIVATE)
-                        .edit().putInt("ai_mode", aiMode).apply();
-                    applyAiModeUi();
+        webView.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String url) {
+                return false;
+            }
+
+            @Override public void onPageFinished(WebView v, String url) {
+                if (statusLabel != null) {
+                    statusLabel.setText("DeepSeek · готов");
                 }
-            });
+                v.evaluateJavascript(JS_INIT, null);
+                v.evaluateJavascript(JS_THEME, null);
+                v.postDelayed(new Runnable() { @Override public void run() {
+                    v.evaluateJavascript("window.__termuxApplyTheme&&window.__termuxApplyTheme()", null);
+                }}, 2000);
+            }
+        });
+
+        if (savedInstanceState == null) {
+            webView.loadUrl(START_URL);
+        } else {
+            webView.restoreState(savedInstanceState);
         }
-
-        // Overlay — запускаем ТОЛЬКО если пользователь включил в настройках
-        boolean overlayEnabled = getSharedPreferences("app_prefs", MODE_PRIVATE)
-            .getBoolean("overlay_enabled", false);
-        if (overlayEnabled) {
-            if (Build.VERSION.SDK_INT >= 23 && Settings.canDrawOverlays(this)) {
-                OverlayService.start(this);
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                    @Override public void run() {
-                        OverlayService.setState(MainActivity.this, "on");
-                    }
-                }, 500);
-            }
-        }
-
-        adapter = new TaskAdapter(this, tasks);
-        if (listTasks != null) listTasks.setAdapter(adapter);
-
-        btnRun.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { submitTask(); }
-        });
-        btnSettings.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Intent i = new Intent(MainActivity.this, SettingsActivity.class);
-                startActivity(i);
-            }
-        });
-
-        if (listTasks != null) listTasks.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
-            @Override public void onItemClick(android.widget.AdapterView<?> p, View v, int pos, long id) {
-                showTaskDialog(tasks.get(pos));
-            }
-        });
-
-        // Долгий тап = удалить задачу
-        if (listTasks != null) listTasks.setOnItemLongClickListener(new android.widget.AdapterView.OnItemLongClickListener() {
-            @Override public boolean onItemLongClick(android.widget.AdapterView<?> p, View v, final int pos, long id) {
-                final TaskItem t = tasks.get(pos);
-                new android.app.AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Удалить задачу?")
-                    .setMessage(t.task)
-                    .setPositiveButton("Удалить", new android.content.DialogInterface.OnClickListener() {
-                        @Override public void onClick(android.content.DialogInterface d, int w) {
-                            deleteTask(t);
-                        }
-                    })
-                    .setNegativeButton("Отмена", null)
-                    .show();
-                return true;
-            }
-        });
-
-        // Кнопка "Свободный режим"
-        Button btnFree = findViewById(R.id.btn_free_mode);
-        if (btnFree != null) {
-            btnFree.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    toggleFreeMode();
-                }
-            });
-            // Свободный режим всегда ВЫКЛ при холодном старте
-            freeModeEnabled = false;
-            getSharedPreferences("app_prefs", MODE_PRIVATE)
-                .edit().putBoolean("free_mode_enabled", false).apply();
-            applyFreeModeUi(btnFree);
-            // Отправляем демону команду выключения (если он остался в режиме с прошлого раза)
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        java.net.Socket sock = new java.net.Socket();
-                        sock.connect(new java.net.InetSocketAddress("127.0.0.1", 8766), 2000);
-                        java.io.OutputStream os = sock.getOutputStream();
-                        os.write("BUFFER_WATCH off\n".getBytes("UTF-8"));
-                        os.flush();
-                        sock.close();
-                    } catch (Exception ignored) {}
-                }
-            }).start();
-        }
-
-        ensureDirs();
-        requestAllPermissions();
-        initNotificationChannel();
-        requestAllFilesPermissionIfNeeded();
-        updateEnvStatus();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // Проверяем, не сменилась ли тема
-        android.content.SharedPreferences _p = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        String _t = _p.getString("theme", "system");
-        if (lastAppliedTheme != null && !lastAppliedTheme.equals(_t)) {
-            lastAppliedTheme = _t;
-            recreate();
-            return;
-        }
-        lastAppliedTheme = _t;
-        startAutoRefresh();
+    private void debugBlue() {
+        String js = "(function(){"
+            + "var root=getComputedStyle(document.documentElement);"
+            + "var vars=[];"
+            + "for(var i=0;i<root.length;i++){"
+            + "var n=root[i];"
+            + "var v=root.getPropertyValue(n);"
+            + "if(v.indexOf('77')>=0||v.indexOf('107')>=0||v.indexOf('109')>=0||v.indexOf('4D6BFE')>=0||v.indexOf('rgb(77, 107, 254)')>=0){"
+            + "vars.push(n+': '+v);"
+            + "}"
+            + "}"
+            + "var all=document.querySelectorAll('*');"
+            + "var found=[];"
+            + "for(var i=0;i<all.length;i++){"
+            + "var e=all[i];"
+            + "var cs=getComputedStyle(e);"
+            + "var bg=cs.backgroundColor;"
+            + "var col=cs.color;"
+            + "var fill=cs.fill;"
+            + "if(bg&&(bg.indexOf('77, 107')>=0||bg.indexOf('77,107')>=0)){found.push('bg '+bg+' cls='+String(e.className||'-').substring(0,40));}"
+            + "if(fill&&(fill.indexOf('77, 107')>=0||fill.indexOf('77,107')>=0)){found.push('fill '+fill+' cls='+String(e.className||'-').substring(0,40));}"
+            + "}"
+            + "var out='--- CSS vars ---\\n'+vars.join('\\n')+'\\n\\n--- Elements (max 20) ---\\n'+found.slice(0,20).join('\\n');"
+            + "TermuxBridge.showDialog('Диагностика синего', out);"
+            + "return out;"
+            + "})();";
+        webView.evaluateJavascript(js, null);
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        stopAutoRefresh();
-    }
-
-    private void startAutoRefresh() {
-        refreshRunnable = new Runnable() {
-            @Override public void run() {
-                loadTasks();
-                updateEnvStatus();
-                refreshLog();
-                handler.postDelayed(this, 3000);
-            }
+    private void openMenu() {
+        final String[] items = new String[]{
+            "📋  История задач",
+            "🛠  Разработка",
+            "📖  Инструкция",
+            "⚙️  Настройки"
         };
-        handler.post(refreshRunnable);
+        new AlertDialog.Builder(this)
+            .setTitle("Меню")
+            .setItems(items, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    Intent i = null;
+                    if (which == 0) i = new Intent(MainActivity.this, HistoryActivity.class);
+                    else if (which == 1) i = new Intent(MainActivity.this, DevActivity.class);
+                    else if (which == 2) i = new Intent(MainActivity.this, DocsActivity.class);
+                    else if (which == 3) i = new Intent(MainActivity.this, SettingsActivity.class);
+                    if (i != null) startActivity(i);
+                }
+            })
+            .show();
     }
 
-    private void stopAutoRefresh() {
-        if (refreshRunnable != null) handler.removeCallbacks(refreshRunnable);
-    }
-
-    private void ensureDirs() {
+    private void insertFromClipboard() {
         try {
-            new File(INBOX).mkdirs();
-            new File(OUTBOX).mkdirs();
-        } catch (Exception e) {
-            toast("Не могу создать /sdcard/ai-tasker: " + e.getMessage());
-        }
-    }
-
-    private void requestAllFilesPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 30) return;
-        if (Environment.isExternalStorageManager()) return;
-
-        try {
-            Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-            i.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(i);
-        } catch (Exception e) {
-            try {
-                Intent i = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                startActivity(i);
-            } catch (Exception e2) {
-                toast("Открой разрешения вручную: Настройки → Приложения → Termux Assistant AI");
+            String text = readClipboard();
+            if (text == null || text.isEmpty()) {
+                toast("Буфер пуст");
+                return;
             }
-        }
-    }
-
-    private void toast(String s) {
-        Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
-    }
-
-    private void submitTask() {
-        String text = inputTask.getText().toString().trim();
-        if (TextUtils.isEmpty(text)) {
-            toast("Введи задачу");
-            return;
-        }
-
-        String id = "t" + System.currentTimeMillis();
-        File f = new File(INBOX, "task-" + id + ".txt");
-
-        String payload = text;
-        if (aiMode == 1) payload = "dev:" + text;
-        else if (aiMode == 2) payload = "auto:" + text;
-
-        try {
-            FileWriter w = new FileWriter(f);
-            w.write(payload);
-            w.close();
-            inputTask.setText("");
-            String modeName = aiMode == 1 ? "Dev" : (aiMode == 2 ? "Shell" : "AI");
-            toast("Задача отправлена (" + modeName + ")");
-            handler.postDelayed(new Runnable() { @Override public void run() { loadTasks(); } }, 500);
+            String escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+            webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+            if (statusLabel != null) statusLabel.setText("Вставлено (" + text.length() + " симв.)");
         } catch (Exception e) {
             toast("Ошибка: " + e.getMessage());
         }
     }
 
-    private void applyAiModeUi() {
-        if (btnMode == null) return;
-        if (aiMode == 0) {
-            btnMode.setText("\uD83E\uDD16 AI");
-            btnMode.setBackgroundResource(R.drawable.btn_secondary);
-        } else if (aiMode == 1) {
-            btnMode.setText("\uD83D\uDEE0 Dev");
-            btnMode.setBackgroundResource(R.drawable.btn_primary);
-        } else {
-            btnMode.setText("\u25B6 Shell");
-            btnMode.setBackgroundResource(R.drawable.btn_primary);
-        }
-
-        // Shell режим = раскрываем лог, AI/Dev = сворачиваем
-        if (logScroll != null) {
-            boolean shellOn = (aiMode == 2);
-            logExpanded = shellOn;
-            logScroll.setVisibility(shellOn ? View.VISIBLE : View.GONE);
-            View logToggle = findViewById(R.id.log_toggle);
-            if (logToggle instanceof TextView) {
-                ((TextView) logToggle).setText(shellOn ? "\u25BE" : "\u25B8");
-            }
-        }
+    private void clearInput() {
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        if (statusLabel != null) statusLabel.setText("Поле очищено");
     }
 
-    private void loadTasks() {
-        File dir = new File(OUTBOX);
-        if (!dir.exists()) {
-            if (emptyHistory != null) emptyHistory.setVisibility(View.VISIBLE);
+    private void startCycle(final boolean autoSend) {
+        long now = System.currentTimeMillis();
+        if (now - lastSendTime < PAUSE_BETWEEN_MS) {
+            long wait = (PAUSE_BETWEEN_MS - (now - lastSendTime)) / 1000;
+            toast("Подожди ещё " + wait + " сек");
             return;
         }
 
-        File[] files = dir.listFiles(new java.io.FilenameFilter() {
-            @Override public boolean accept(File d, String n) {
-                return n.startsWith("task-") && n.endsWith(".json");
+        webView.evaluateJavascript("window.TermuxGetInput();",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                String text = unescapeJs(value);
+                if (text != null && !text.trim().isEmpty()) {
+                    runFullCycle(text.trim(), autoSend);
+                    return;
+                }
+                String fromClip = readClipboard();
+                if (fromClip == null || fromClip.trim().isEmpty()) {
+                    toast("Поле и буфер пусты — скопируй код из DeepSeek");
+                    return;
+                }
+                runFullCycle(fromClip.trim(), autoSend);
             }
         });
-        if (files == null) return;
-
-        List<TaskItem> fresh = new ArrayList<>();
-        for (File f : files) {
-            TaskItem t = parseTaskFile(f);
-            if (t != null && t.task != null
-                && !t.id.startsWith("tile")) {
-                fresh.add(t);
-            }
-        }
-        Collections.sort(fresh, new java.util.Comparator<TaskItem>() {
-            @Override public int compare(TaskItem a, TaskItem b) { return Long.compare(b.started, a.started); }
-        });
-
-        tasks.clear();
-        tasks.addAll(fresh);
-        if (adapter != null) adapter.notifyDataSetChanged();
-
-        for (TaskItem t : tasks) notifyIfNeeded(t);
-
-        if (emptyHistory != null) emptyHistory.setVisibility(View.VISIBLE);
-        if (listTasks != null) listTasks.setVisibility(View.GONE);
     }
+
+    private void runFullCycle(final String taskText, final boolean autoSend) {
+        lastSendTime = System.currentTimeMillis();
+
+        try {
+            File dir = new File(INBOX);
+            dir.mkdirs();
+            cycleTaskId = "buf" + System.currentTimeMillis();
+            File f = new File(dir, "task-" + cycleTaskId + ".txt");
+            FileWriter w = new FileWriter(f);
+            w.write("auto:" + taskText);
+            w.close();
+        } catch (Exception e) {
+            toast("Ошибка записи: " + e.getMessage());
+            return;
+        }
+
+        if (statusLabel != null) statusLabel.setText("⏳ Выполняется в Termux…");
+        cycleStartTime = System.currentTimeMillis();
+
+        cycleRunnable = new Runnable() {
+            @Override public void run() {
+                long elapsed = System.currentTimeMillis() - cycleStartTime;
+                if (elapsed > 120000) {
+                    if (statusLabel != null) statusLabel.setText("✗ Таймаут 2 мин");
+                    return;
+                }
+                File out = new File(OUTBOX, "task-" + cycleTaskId + ".json");
+                if (out.exists()) {
+                    String result = readResultFromJson(out);
+                    if (result != null) {
+                        webView.evaluateJavascript("window.TermuxClearInput();", null);
+                        String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+                        webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
+                        if (statusLabel != null) {
+                            statusLabel.setText(autoSend
+                                ? "✓ Готово — отправляю"
+                                : "✓ Готово — жми отправить");
+                        }
+                        if (autoSend) {
+                            webView.postDelayed(new Runnable() {
+                                @Override public void run() {
+                                    webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+                                }
+                            }, 600);
+                        } else {
+                            toast("Готово. Проверь поле");
+                        }
+                        return;
+                    }
+                }
+                handler.postDelayed(this, 1500);
+            }
+        };
+        handler.postDelayed(cycleRunnable, 1500);
+    }
+
+    private String readResultFromJson(File f) {
+        try {
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            r.close();
+            org.json.JSONObject o = new org.json.JSONObject(sb.toString());
+            String output = o.optString("output", "");
+            String status = o.optString("status", "");
+            if (output != null && !output.isEmpty()) return output;
+            return "(пусто, статус: " + status + ")";
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String readClipboard() {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null || !cm.hasPrimaryClip()) return null;
+            ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return null;
+            CharSequence seq = clip.getItemAt(0).coerceToText(this);
+            return seq != null ? seq.toString() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String unescapeJs(String value) {
+        if (value == null) return null;
+        String s = value;
+        if (s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length() - 1);
+        }
+        s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+        return s;
+    }
+
+    private void toast(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (cycleRunnable != null) handler.removeCallbacks(cycleRunnable);
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        if (webView != null) webView.saveState(outState);
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    private static final String JS_THEME =
+        "(function(){"
+        + "if(window.__termuxThemeInit) return 'already';"
+        + "window.__termuxThemeInit = true;"
+        + "window.__termuxRepaint = function(){"
+        + "  var blueParts=['77, 107','77,107','76, 108','76,108','46, 107'];"
+        + "  function isBlue(v){if(!v)return false;for(var k=0;k<blueParts.length;k++){if(v.indexOf(blueParts[k])>=0)return true;}return false;}"
+        + "  var all=document.querySelectorAll('*');"
+        + "  for(var i=0;i<all.length;i++){"
+        + "    var e=all[i];"
+        + "    var txt=(e.childElementCount===0?(e.textContent||''):'').trim();"
+        + "    if(txt==='Get App'||txt==='Получить приложение'||txt==='Get the App'){"
+        + "      var target=null;var p=e;"
+        + "      var maxW=window.innerWidth*0.5;"
+        + "      for(var lvl=0;lvl<8&&p;lvl++){"
+        + "        var r=p.getBoundingClientRect();"
+        + "        if(r.width>maxW)break;"
+        + "        target=p;"
+        + "        p=p.parentElement;"
+        + "      }"
+        + "      if(target)target.style.setProperty('display','none','important');"
+        + "    }"
+
+        + "    var cs=getComputedStyle(e);"
+        + "    if(isBlue(cs.backgroundColor)) e.style.setProperty('background-color','#22C55E','important');"
+        + "    if(isBlue(cs.color)) e.style.setProperty('color','#22C55E','important');"
+        + "    if(isBlue(cs.borderTopColor)) e.style.setProperty('border-color','#22C55E','important');"
+        + "    if(e.tagName.toLowerCase()==='svg'||e.tagName.toLowerCase()==='path'){"
+        + "      if(isBlue(e.getAttribute('fill'))) e.setAttribute('fill','#22C55E');"
+        + "      if(isBlue(e.getAttribute('stroke'))) e.setAttribute('stroke','#22C55E');"
+        + "    }"
+        + "  }"
+        + "};"
+        + "window.__termuxApplyTheme = function(){"
+        + "  if(!document.getElementById('termux-theme')){"
+        + "    var s=document.createElement('style');"
+        + "    s.id='termux-theme';"
+        + "    s.textContent='html,body{background:#121214 !important;color:#E8E5DF !important;}';"
+        + "    document.head.appendChild(s);"
+        + "  }"
+        + "  window.__termuxRepaint();"
+        + "};"
+        + "window.__termuxApplyTheme();"
+        + "if(!window.__termuxObs){"
+        + "  window.__termuxObs=new MutationObserver(function(){"
+        + "    clearTimeout(window.__termuxT);"
+        + "    window.__termuxT=setTimeout(window.__termuxApplyTheme,300);"
+        + "  });"
+        + "  window.__termuxObs.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','fill','stroke']});"
+        + "}"
+        + "return 'theme_ready';"
+        + "})();";
+
+    private static final String JS_INIT =
+        "window.TermuxInsertText = function(text){"
+        + "try{"
+        + "var ta=document.querySelector('textarea');"
+        + "if(!ta)return 'no_ta';"
+        + "ta.focus();"
+        + "var setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;"
+        + "setter.call(ta,text);"
+        + "ta.dispatchEvent(new Event('input',{bubbles:true}));"
+        + "ta.dispatchEvent(new Event('change',{bubbles:true}));"
+        + "return 'ok';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxFindAndClick=function(){"
+        + "var ta=document.querySelector('textarea');"
+        + "if(!ta)return 'no_ta';"
+        + "var taR=ta.getBoundingClientRect();"
+        + "var all=document.querySelectorAll('[role=button],button');"
+        + "var best=null,bestRight=-1;"
+        + "for(var i=0;i<all.length;i++){"
+        + "var b=all[i];var r=b.getBoundingClientRect();"
+        + "if(r.width<20||r.width>80)continue;"
+        + "if(r.height<20||r.height>80)continue;"
+        + "if(r.left<taR.left-30)continue;"
+        + "if(r.top<taR.top-30)continue;"
+        + "if(r.top>taR.bottom+150)continue;"
+        + "if(!b.querySelector('svg'))continue;"
+        + "if(r.right>bestRight){bestRight=r.right;best=b;}"
+        + "}"
+        + "if(!best)return 'no_btn';"
+        + "best.click();"
+        + "return 'clicked';"
+        + "};"
+        + "window.TermuxGetInput = function(){"
+        + "var ta=document.querySelector('textarea');"
+        + "return ta?ta.value:'';"
+        + "};"
+        + "window.TermuxClearInput = function(){"
+        + "try{"
+        + "var ta=document.querySelector('textarea');"
+        + "if(!ta)return 'no_ta';"
+        + "var setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;"
+        + "setter.call(ta,'');"
+        + "ta.dispatchEvent(new Event('input',{bubbles:true}));"
+        + "return 'ok';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};";
+
 
     static TaskItem parseTaskFile(File f) {
         try {
@@ -430,374 +517,4 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showTaskDialog(final TaskItem t) {
-        try {
-            android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-            View view = getLayoutInflater().inflate(R.layout.dialog_task, null);
-            b.setView(view);
-
-            TextView statusIcon = view.findViewById(R.id.dlg_status_icon);
-            TextView statusText = view.findViewById(R.id.dlg_status_text);
-            TextView durationTv = view.findViewById(R.id.dlg_duration);
-            TextView taskTv = view.findViewById(R.id.dlg_task);
-            TextView outputTv = view.findViewById(R.id.dlg_output);
-
-            statusIcon.setText(t.statusLabel());
-            statusIcon.setTextColor(t.statusColor());
-            statusText.setText(t.statusText());
-            statusText.setTextColor(t.statusColor());
-
-            String dur = t.durationLabel();
-            durationTv.setText(dur.length() > 0 ? dur : "");
-
-            taskTv.setText(t.task);
-            outputTv.setText(t.output != null && t.output.length() > 0 ? t.output : "(нет вывода)");
-
-            final android.app.AlertDialog dialog = b.create();
-
-            view.findViewById(R.id.dlg_retry).setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    retryTask(t);
-                    dialog.dismiss();
-                }
-            });
-            view.findViewById(R.id.dlg_copy).setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    copyToClipboard(t.output != null ? t.output : "");
-                    toast("Скопировано");
-                }
-            });
-            view.findViewById(R.id.dlg_delete).setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    deleteTask(t);
-                    dialog.dismiss();
-                }
-            });
-
-            dialog.show();
-        } catch (Exception e) {
-            toast("Ошибка диалога: " + e.getMessage());
-        }
-    }
-
-    private void retryTask(TaskItem t) {
-        try {
-            String id = "t" + System.currentTimeMillis();
-            File f = new File(INBOX, "task-" + id + ".txt");
-            FileWriter w = new FileWriter(f);
-            w.write(t.task);
-            w.close();
-            toast("Задача отправлена снова");
-            handler.postDelayed(new Runnable() { @Override public void run() { loadTasks(); } }, 500);
-        } catch (Exception e) {
-            toast("Ошибка: " + e.getMessage());
-        }
-    }
-
-    private void deleteTask(TaskItem t) {
-        try {
-            File f = new File(t.filePath);
-            if (f.exists()) f.delete();
-            toast("Удалено");
-            loadTasks();
-        } catch (Exception e) {
-            toast("Ошибка удаления: " + e.getMessage());
-        }
-    }
-
-    private void copyToClipboard(String text) {
-        try {
-            android.content.ClipboardManager cm = (android.content.ClipboardManager)
-                getSystemService(CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("tasker", text));
-        } catch (Exception ignored) {}
-    }
-
-    private static final String CHANNEL_ID = "ai-tasker";
-
-    private void initNotificationChannel() {
-        if (Build.VERSION.SDK_INT < 26) return;
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationChannel ch = new NotificationChannel(
-            CHANNEL_ID, "Задачи Termux Assistant AI", NotificationManager.IMPORTANCE_DEFAULT);
-        ch.setDescription("Уведомления о завершении задач");
-        nm.createNotificationChannel(ch);
-    }
-
-    private java.util.Set<String> notifiedIds = new java.util.HashSet<>();
-
-    private void notifyIfNeeded(TaskItem t) {
-        if (t == null || t.id == null) return;
-        if (!"success".equals(t.status) && !"error".equals(t.status)) return;
-        if (notifiedIds.contains(t.id)) return;
-        notifiedIds.add(t.id);
-
-        try {
-            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            int icon = "success".equals(t.status) ? android.R.drawable.stat_sys_download_done
-                                                  : android.R.drawable.stat_notify_error;
-
-            android.app.Notification.Builder b;
-            if (Build.VERSION.SDK_INT >= 26) {
-                b = new android.app.Notification.Builder(this, CHANNEL_ID);
-            } else {
-                b = new android.app.Notification.Builder(this);
-            }
-
-            String title = "success".equals(t.status) ? "✓ Задача выполнена" : "✗ Задача с ошибкой";
-            String text = t.task;
-            if (text != null && text.length() > 60) text = text.substring(0, 60) + "…";
-
-            b.setSmallIcon(icon)
-             .setContentTitle(title)
-             .setContentText(text)
-             .setAutoCancel(true);
-
-            Intent i = new Intent(this, MainActivity.class);
-            i.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            PendingIntent pi = PendingIntent.getActivity(this, 0, i,
-                PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
-            b.setContentIntent(pi);
-
-            nm.notify(t.id.hashCode(), b.build());
-        } catch (Exception ignored) {}
-    }
-
-    private void requestAllPermissions() {
-        // 1. MANAGE_EXTERNAL_STORAGE (для /sdcard/ai-tasker)
-        if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                if (!Environment.isExternalStorageManager()) {
-                    Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                    i.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
-                }
-            } catch (Exception e) {
-                try {
-                    startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
-                } catch (Exception ignored) {}
-            }
-        }
-
-        // 2. RECORD_AUDIO (для голосового ввода)
-        if (Build.VERSION.SDK_INT >= 23) {
-            if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 1001);
-            }
-        }
-    }
-
-    private boolean isAccessibilityEnabled() {
-        try {
-            String enabled = Settings.Secure.getString(getContentResolver(),
-                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-            if (enabled == null) return false;
-            return enabled.contains(getPackageName() + "/" + getPackageName() + ".AiBridgeService")
-                || enabled.contains(getPackageName() + "/.AiBridgeService");
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private void openAccessibilitySettings() {
-        try {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-        } catch (Exception ignored) {}
-    }
-
-    private void updateEnvStatus() {
-        StringBuilder issues = new StringBuilder();
-        if (!new File("/sdcard/ai-tasker").exists()) issues.append("нет /sdcard/ai-tasker; ");
-        if (!new File(INBOX).exists()) issues.append("нет inbox; ");
-        if (!new File(OUTBOX).exists()) issues.append("нет outbox; ");
-
-        if (issues.length() == 0) {
-            envStatus.setText("✓ OK");
-            envStatus.setTextColor(0xFF4CAF50);
-        } else {
-            envStatus.setText("⚠ " + issues);
-            envStatus.setTextColor(0xFFE5484D);
-        }
-    }
-
-    private static final int REQ_VOICE = 1001;
-
-    private void startVoiceInput() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "Recognition unavailable", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU");
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak");
-        try {
-            startActivityForResult(intent, REQ_VOICE);
-        } catch (Exception e) {
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQ_VOICE && resultCode == RESULT_OK && data != null) {
-            java.util.ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if (results != null && !results.isEmpty() && inputTask != null) {
-                inputTask.setText(results.get(0));
-            }
-        }
-    }
-
-
-    private boolean freeModeEnabled = false;
-
-    private void toggleFreeMode() {
-        freeModeEnabled = !freeModeEnabled;
-        getSharedPreferences("app_prefs", MODE_PRIVATE)
-            .edit().putBoolean("free_mode_enabled", freeModeEnabled).apply();
-        Button btn = findViewById(R.id.btn_free_mode);
-        applyFreeModeUi(btn);
-
-        try {
-            // 1. Отправляем команду сервису через сокет
-            new Thread(new Runnable() {
-                public void run() {
-                    try {
-                        java.net.Socket sock = new java.net.Socket();
-                        sock.connect(new java.net.InetSocketAddress("127.0.0.1", 8766), 2000);
-                        java.io.OutputStream os = sock.getOutputStream();
-                        String cmd = freeModeEnabled ? "BUFFER_WATCH on\n" : "BUFFER_WATCH off\n";
-                        os.write(cmd.getBytes("UTF-8"));
-                        os.flush();
-                        sock.close();
-                    } catch (Exception ignored) {}
-                }
-            }).start();
-
-            if (freeModeEnabled) {
-                // При включении free mode overlay нужен для работы с буфером —
-                // запускаем его принудительно и запоминаем в настройке
-                getSharedPreferences("app_prefs", MODE_PRIVATE)
-                    .edit().putBoolean("overlay_enabled", true).apply();
-                if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-                    try {
-                        Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + getPackageName()));
-                        startActivity(i);
-                    } catch (Exception ignored) {}
-                } else {
-                    OverlayService.start(this);
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                        @Override public void run() {
-                            OverlayService.setState(MainActivity.this, "on");
-                        }
-                    }, 500);
-                }
-                Toast.makeText(this, "Свободный режим включён. Копируй код из DeepSeek.", Toast.LENGTH_LONG).show();
-            } else {
-                // При выключении free mode выключаем и overlay
-                getSharedPreferences("app_prefs", MODE_PRIVATE)
-                    .edit().putBoolean("overlay_enabled", false).apply();
-                OverlayService.stop(this);
-                Toast.makeText(this, "Свободный режим выключен", Toast.LENGTH_SHORT).show();
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void applyFreeModeUi(Button btn) {
-        if (btn == null) return;
-        btn.setText(freeModeEnabled ? "🤖 ВКЛ" : "🤖 ВЫКЛ");
-        btn.setBackgroundResource(freeModeEnabled ? R.drawable.btn_primary : R.drawable.btn_secondary);
-    }
-
-    // === Live-лог Termux ===
-    private static final String LOG_FILE = "/sdcard/ai-tasker/logs/daemon.log";
-    private static final int LOG_TAIL_LINES = 8;
-
-    private void refreshLog() {
-        if (logText == null) return;
-        try {
-            java.io.File f = new java.io.File(LOG_FILE);
-            if (!f.exists()) {
-                logText.setText("Лог не найден");
-                return;
-            }
-            long size = f.length();
-            long readFrom = Math.max(0, size - 8192);
-            byte[] buf = new byte[(int)(size - readFrom)];
-            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
-            raf.seek(readFrom);
-            raf.readFully(buf);
-            raf.close();
-
-            String all = new String(buf, "UTF-8");
-            String[] lines = all.split("\n");
-            int start = Math.max(0, lines.length - LOG_TAIL_LINES);
-            StringBuilder sb = new StringBuilder();
-            for (int i = start; i < lines.length; i++) {
-                String formatted = formatLogLine(lines[i]);
-                if (formatted != null) {
-                    if (sb.length() > 0) sb.append("\n");
-                    sb.append(formatted);
-                }
-            }
-            if (sb.length() == 0) sb.append("Ожидание активности…");
-            String newText = sb.toString();
-            if (!newText.equals(logText.getText().toString())) {
-                logText.setText(newText);
-                if (logScroll instanceof android.widget.ScrollView) {
-                    final android.widget.ScrollView sv = (android.widget.ScrollView) logScroll;
-                    sv.post(new Runnable() {
-                        @Override public void run() { sv.fullScroll(View.FOCUS_DOWN); }
-                    });
-                }
-            }
-        } catch (Exception e) {
-            logText.setText("Ошибка чтения лога");
-        }
-    }
-
-    private String formatLogLine(String line) {
-        if (line == null) return null;
-        line = line.trim();
-        if (line.isEmpty()) return null;
-
-        String time = "";
-        if (line.startsWith("[") && line.length() > 9 && line.charAt(9) == ']') {
-            time = line.substring(1, 9);
-            line = line.substring(10).trim();
-        }
-        if (line.isEmpty()) return null;
-
-        String icon = "·";
-        String body = line;
-
-        if (line.startsWith("=== AUTO")) {
-            icon = "▶";
-            body = line.substring(4).trim();
-        } else if (line.startsWith("=== ")) {
-            icon = "▶";
-            body = line.substring(4).trim();
-        } else if (line.contains("результат записан")) {
-            icon = "💾";
-            body = "результат записан";
-        } else if (line.contains("rc=0")) {
-            icon = "✅";
-            body = "готово";
-        } else if (line.contains("rc=")) {
-            icon = "❌";
-            body = "ошибка выполнения";
-        } else if (line.contains("ошибка") || line.contains("error")) {
-            icon = "❌";
-        }
-
-        if (body.length() > 70) body = body.substring(0, 70) + "…";
-
-        if (time.isEmpty()) return icon + " " + body;
-        return time + " " + icon + " " + body;
-    }
 }

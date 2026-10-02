@@ -5,8 +5,10 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -24,6 +26,8 @@ public class DevActivity extends Activity {
     private ListView listView;
     private TextView countLabel;
     private Button tabGit, tabAiDev, tabPatches;
+    private EditText inputDev;
+    private Button btnDevSend;
 
     private int currentTab = 0; // 0=Git, 1=AI-Dev, 2=Patches
 
@@ -42,6 +46,14 @@ public class DevActivity extends Activity {
         tabGit = findViewById(R.id.tab_git);
         tabAiDev = findViewById(R.id.tab_aidev);
         tabPatches = findViewById(R.id.tab_patches);
+
+        inputDev = findViewById(R.id.input_dev);
+        btnDevSend = findViewById(R.id.btn_dev_send);
+        if (btnDevSend != null) {
+            btnDevSend.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { sendDevTask(); }
+            });
+        }
 
         Button close = findViewById(R.id.btn_close_dev);
         if (close != null) {
@@ -162,5 +174,28 @@ public class DevActivity extends Activity {
             }
         } catch (Exception ignored) {}
         return result;
+    }
+
+
+    private void sendDevTask() {
+        if (inputDev == null) return;
+        String text = inputDev.getText().toString().trim();
+        if (text.isEmpty()) {
+            Toast.makeText(this, "Введи задачу", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            java.io.File dir = new java.io.File("/sdcard/ai-tasker/inbox");
+            dir.mkdirs();
+            String id = "dev" + System.currentTimeMillis();
+            java.io.File f = new java.io.File(dir, "task-" + id + ".txt");
+            java.io.FileWriter w = new java.io.FileWriter(f);
+            w.write("dev:" + text);
+            w.close();
+            inputDev.setText("");
+            Toast.makeText(this, "Отправлено в ai-dev", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 }

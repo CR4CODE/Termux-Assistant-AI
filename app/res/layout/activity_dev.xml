@@ -48,6 +48,53 @@
         android:paddingRight="16dp"
         android:paddingBottom="8dp">
 
+        <EditText
+            android:id="@+id/input_dev"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Задача для AI-dev..."
+            android:textColorHint="?attr/appTextSecondary"
+            android:textColor="?attr/appTextPrimary"
+            android:background="@drawable/bg_input"
+            android:paddingLeft="14dp"
+            android:paddingRight="14dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:minLines="1"
+            android:maxLines="3"
+            android:gravity="center_vertical|start"
+            android:inputType="textMultiLine|textCapSentences"
+            android:fontFamily="@font/syne"/>
+
+        <Button
+            android:id="@+id/btn_dev_send"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="→"
+            android:textSize="22sp"
+            style="@style/PrimaryButton"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingLeft="16dp"
+        android:paddingRight="16dp"
+        android:paddingBottom="8dp">
+
         <Button
             android:id="@+id/tab_git"
             android:layout_width="0dp"
