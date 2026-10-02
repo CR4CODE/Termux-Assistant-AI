@@ -153,7 +153,6 @@ def prepend_changelog(version, notes_text):
 
 def _extract_whatsnew(version, notes_text):
     """Из тела CHANGELOG делает summary + буллеты (до 5 абзацев)."""
-    summary = f"**Что нового в v{version}**"
     bullets = []
     section_words = {"Добавлено", "Изменено", "Исправлено",
                      "Удалено", "Убрано", "Исправления"}
@@ -176,7 +175,7 @@ def _extract_whatsnew(version, notes_text):
         bullets.append(f"- {s}")
         if len(bullets) >= 5:
             break
-    return summary, bullets
+    return bullets
 
 
 def update_readme_whatsnew(version, notes_text):
@@ -185,7 +184,7 @@ def update_readme_whatsnew(version, notes_text):
         return
     with open(path, "r", encoding="utf-8") as f:
         src = f.read()
-    summary, bullets = _extract_whatsnew(version, notes_text)
+    bullets = _extract_whatsnew(version, notes_text)
     if bullets:
         body = "\n".join(bullets)
     else:
