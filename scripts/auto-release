@@ -57,10 +57,12 @@ def read_prev_version(bs_path):
 def bump_version(version):
     bs = os.path.join(WORK, "build.sh")
     prev = read_prev_version(bs)
-    parts = version.split(".")
-    if len(parts) < 2:
-        raise SystemExit(f"Версия должна быть вида X.Y, получил: {version}")
-    code = int(parts[0]) * 100 + int(parts[1])
+    parts = (version.split(".") + ["0", "0", "0"])[:3]
+    try:
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        raise SystemExit(f"Версия должна быть вида X.Y или X.Y.Z, получил: {version}")
+    code = major * 10000 + minor * 100 + patch
     with open(bs, "r", encoding="utf-8") as f:
         content = f.read()
     content = re.sub(r"--version-code \d+ --version-name \S+",
