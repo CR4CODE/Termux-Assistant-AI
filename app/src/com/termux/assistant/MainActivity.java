@@ -45,6 +45,8 @@ public class MainActivity extends Activity {
     private LockableWebView webView;
     private ProgressBar progressBar;
     private TextView statusLabel;
+    private volatile String lastContextError = "";
+    private volatile boolean contextPollerRunning = false;
 
     private long lastSendTime = 0;
     private long cycleStartTime = 0;
@@ -206,6 +208,7 @@ public class MainActivity extends Activity {
                 v.postDelayed(new Runnable() { @Override public void run() {
                     v.evaluateJavascript("window.__termuxApplyTheme&&window.__termuxApplyTheme()", null);
                 }}, 2000);
+                startContextPoller();
             }
         });
 
@@ -755,25 +758,29 @@ public class MainActivity extends Activity {
             .setMessage("Отправить в DeepSeek запрос на сводку, скопировать ответ, открыть новый чат и вставить сводку первым сообщением?")
             .setPositiveButton("Поехали", new DialogInterface.OnClickListener() {
                 @Override public void onClick(DialogInterface d, int w) {
-                    if (statusLabel != null) statusLabel.setText("Готовлю сводку контекста...");
-                    String prompt = "Составь сводку для продолжения работы в НОВОМ чате. "
-                        + "Я вставлю её первым сообщением. "
-                        + "ВАЖНО: ответь ТОЛЬКО сводкой, без рассуждений. "
-                        + "Начни сразу с первой строки: === КОНТЕКСТ ДЛЯ ПРОДОЛЖЕНИЯ ===\\n"
-                        + "Секции: ПРОЕКТ / СТЕК / ПУТИ / ПРАВИЛА / АРХИТЕКТУРА / ЧТО СДЕЛАНО / ЧТО ОСТАЛОСЬ / ТЕКУЩАЯ ЗАДАЧА / ГРАБЛИ.\\n"
-                        + "Последняя строка: === КОНЕЦ ===. Только суть, без воды.";
-                    String escaped = prompt.replace("\\", "\\\\")
-                        .replace("\"", "\\\"")
-                        .replace("'", "\\'")
-                        .replace("\n", "\\n")
-                        .replace("\r", "\\r")
-                        .replace("\t", "\\t");
-                    webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
-                    saveContextWait(0);
+                    saveContextRun();
                 }
             })
             .setNegativeButton("Отмена", null)
             .show();
+    }
+
+    private void saveContextRun() {
+        if (statusLabel != null) statusLabel.setText("Готовлю сводку контекста...");
+        String prompt = "Составь сводку для продолжения работы в НОВОМ чате. "
+            + "Я вставлю её первым сообщением. "
+            + "ВАЖНО: ответь ТОЛЬКО сводкой, без рассуждений. "
+            + "Начни сразу с первой строки: === КОНТЕКСТ ДЛЯ ПРОДОЛЖЕНИЯ === "
+            + "Секции: ПРОЕКТ / СТЕК / ПУТИ / ПРАВИЛА / АРХИТЕКТУРА / ЧТО СДЕЛАНО / ЧТО ОСТАЛОСЬ / ТЕКУЩАЯ ЗАДАЧА / ГРАБЛИ. "
+            + "Последняя строка: === КОНЕЦ ===. Только суть, без воды.";
+        String escaped = prompt.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
+        webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
+        saveContextWait(0);
     }
 
     private void saveContextWait(final int attempt) {
@@ -832,6 +839,47 @@ public class MainActivity extends Activity {
                 });
             }
         }, 2000);
+    }
+
+    private void startContextPoller() {
+        if (contextPollerRunning) return;
+        contextPollerRunning = true;
+        lastContextError = "";
+        webView.postDelayed(new Runnable() { @Override public void run() { contextPollerTick(); } }, 8000);
+    }
+
+    private void contextPollerTick() {
+        if (!contextPollerRunning || webView == null) return;
+        webView.evaluateJavascript("window.TermuxDetectContextError&&window.TermuxDetectContextError();",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String v) {
+                String err = (v == null) ? "" : v;
+                if (err.startsWith("\"") && err.endsWith("\"") && err.length() >= 2) {
+                    err = err.substring(1, err.length() - 1);
+                }
+                err = err.replace("\\n", "\n").replace("\\\"", "\"");
+                if (err.equals("null")) err = "";
+                if (!err.isEmpty() && !err.equals(lastContextError) && !err.startsWith("err:")) {
+                    lastContextError = err;
+                    showContextErrorDialog(err);
+                }
+                webView.postDelayed(new Runnable() { @Override public void run() { contextPollerTick(); } }, 3000);
+            }
+        });
+    }
+
+    private void showContextErrorDialog(final String err) {
+        if (isFinishing()) return;
+        new AlertDialog.Builder(MainActivity.this)
+            .setTitle("DeepSeek: лимит контекста")
+            .setMessage("Похоже, чат упёрся в лимит контекста.\n\nСохранить сводку и открыть новый чат?")
+            .setPositiveButton("Сохранить и открыть", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    saveContextRun();
+                }
+            })
+            .setNeutralButton("Позже", null)
+            .show();
     }
 
     private void openVkMenu() {
@@ -1244,22 +1292,23 @@ public class MainActivity extends Activity {
                 final String facts = output;
                 String prompt = "Ты — SMM-редактор сообщества ВК проекта Termux Assistant AI.\n"
                     + "На основе фактов ниже напиши пост для сообщества ВК.\n\n"
-                    + "ЖЁСТКИЕ ТРЕБОВАНИЯ:\n"
-                    + "- Длина: ОТ 900 ДО 1300 знаков (это очень важно, короткие посты не принимаются)\n"
-                    + "- Пиши развёрнуто, каждый пункт — 1-2 предложения, добавляй пояснения\n"
-                    + "- НЕ используй списки из одного слова\n\n"
-                    + "СТРУКТУРА:\n"
-                    + "1) Эмодзи + заголовок (например: 🚀 Termux Assistant AI — v2.3 уже здесь!)\n"
-                    + "2) Разделитель ━━━━━━━━━━━━━━━━━━\n"
-                    + "3) Короткое вступление 1-2 строки — что это за проект и зачем\n"
-                    + "4) Разделитель ━━━━━━━━━━━━━━━━━━\n"
-                    + "5) Что нового: каждый пункт с эмодзи + подробное описание (что и зачем)\n"
-                    + "6) Разделитель ━━━━━━━━━━━━━━━━━━\n"
-                    + "7) Что было ранее (если есть релизы в фактах)\n"
-                    + "8) Разделитель ━━━━━━━━━━━━━━━━━━\n"
-                    + "9) Ссылки:\n🌐 https://cr4code.github.io/Termux-Assistant-AI/\n💻 https://github.com/CR4CODE/Termux-Assistant-AI\n"
-                    + "10) Хэштеги: #termux #android #ai #deepseek #opensource #программирование\n\n"
-                    + "ЗАПРЕЩЕНО: упоминать то, чего нет в фактах; markdown-обёртки; пояснения от себя\n"
+                    + "Структура (соблюдай строго, в этом порядке):\n"
+                    + "1) Строка: <эмодзи> <ЗАГОЛОВОК КАПСОМ>\n"
+                    + "2) Пустая строка, затем РОВНО строка из 18 символов ━ (скопируй буквально: ━━━━━━━━━━━━━━━━━━), пустая строка.\n"
+                    + "3) Вступление: 2-3 короткие строки — что за проект и зачем.\n"
+                    + "4) Строка: ━━━━━━━━━━━━━━━━━━\n"
+                    + "5) Блок \"🆕 Что нового:\" — 4-6 пунктов, каждый с эмодзи и дефисом, 1-2 предложения.\n"
+                    + "6) Строка: ━━━━━━━━━━━━━━━━━━\n"
+                    + "7) Блок \"📦 Что было ранее:\" — 2-3 пункта с эмодзи.\n"
+                    + "8) Строка: ━━━━━━━━━━━━━━━━━━\n"
+                    + "9) Ссылки: две строки (🌐 лендинг + 💻 github).\n"
+                    + "10) Хэштеги одной строкой: #termux #android #ai #deepseek #opensource #программирование\n\n"
+                    + "ЖЁСТКИЕ ТРЕБОВАНИЯ К СИМВОЛАМ:\n"
+                    + "- Разделитель — ТОЛЬКО ━ (U+2501), ровно 18 штук, без пробелов. НЕ используй - = _ * и не сокращай.\n"
+                    + "- Эмодзи обязательны в начале заголовка и в подзаголовках 🆕/📦. Не убирай и не заменяй их.\n"
+                    + "- Не используй markdown (##, **, - без эмодзи). ВК не рендерит markdown.\n"
+                    + "- Длина: 900-1300 знаков. Пиши развёрнуто, но без воды.\n\n"
+                    + "ЗАПРЕЩЕНО: упоминать то, чего нет в фактах; пояснения от себя.\n"
                     + "Верни ТОЛЬКО готовый текст поста.\n\n"
                     + "ФАКТЫ О ПРОЕКТЕ:\n" + facts;
                 if (statusLabel != null) statusLabel.setText("Отправляю в DeepSeek...");
