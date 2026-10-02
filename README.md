@@ -1,105 +1,115 @@
-Вот полный README одним текстом. Выдели всё и скопируй — от первой строки до последней.
+# Termux Assistant AI
 
----
-
-Termux Assistant AI
-
-Одна строка. Ты пишешь — она делает. Пока ты живёшь.
+**Одна строка. Ты пишешь — она делает. Пока ты живёшь.**
 
 Открытый AI-ассистент для Android: управляет приложениями, выполняет команды в Termux, читает экран и сам разрабатывает код. Без root. Без API-ключей. Без VPN.
 
-🌐 Ссылки
+## 🌐 Ссылки
 
-· Лендинг проекта — https://cr4code.github.io/Termux-Assistant-AI/
-· Скачать APK v2.0 — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
-· Документация — docs/
-· Сообщество ВК — https://vk.ru/termuxai
+- **Лендинг** — https://cr4code.github.io/Termux-Assistant-AI/
+- **Скачать APK v2.2** — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
+- **Документация** — `docs/`
+- **Сообщество ВК** — https://vk.ru/termuxai
 
-✨ Что нового в v2.0
+## ✨ Что нового в v2.2
 
-Полный редизайн интерфейса — стиль синхронизирован с лендингом.
+**WebView-архитектура + рабочий Dev-цикл.**
 
-· 🖤 Новая палитра: тёплый чёрный #121214 + зелёный акцент #22C55E
-· ☀️ Полноценная светлая тема
-· 🔤 Шрифты Syne + JetBrains Mono
-· 💬 Главный экран — чат-стиль, как в ChatGPT/Claude
-· 🖥 Live-лог Termux прямо на главном — видно, что делает демон в реальном времени
-· 🔀 Переключатель режимов — AI / Dev / Shell одной кнопкой
-· 🔍 История с поиском по задачам и выводу
-· 🎯 Иконка приложения — зелёная точка на чёрном фоне
+Главный экран — это теперь сам `chat.deepseek.com` внутри приложения. Никаких эмуляций кликов и a11y-скриншотов — прямой доступ к DOM через JS-мост.
 
-🚀 Возможности
+- 🌐 **WebView с DeepSeek** — полноценный чат, но под нашим контролем
+- 🔗 **JS-мост** (`TermuxInsertText`, `TermuxSend`, `TermuxReadLast`, …)
+- 📥 **Вставка из буфера** одной кнопкой в поле DeepSeek
+- 🚀 **Free-режим** — буфер/поле → inbox как `auto:` → результат обратно в поле
+- 🛠 **Dev-режим** — выбор файла проекта → задача в DeepSeek → сборка APK
+- 📊 **Живой прогресс сборки** — «APK готов» или «Сборка упала» с хвостом ошибки
+- 🧹 Убран мёртвый код (`DeepSeekWebActivity`)
 
-Три режима ввода
+## 🚀 Возможности
 
-Способ Пример Скорость
-🎤 Голос «открой вк», «покажи uptime» мгновенно
-⌨️ Текст uptime, df -h, ls ~/projects 1–2 сек
-🤖 AI-задача «напиши скрипт X», «создай игру» 30–60 сек
+### Ввод
 
-Три режима работы
+| Способ | Пример | Скорость |
+|--------|--------|----------|
+| 🎤 Голос | «открой вк», «покажи uptime» | мгновенно |
+| ⌨️ Текст | `uptime`, `df -h`, `ls ~/projects` | 1–2 сек |
+| 🤖 AI-задача | «напиши скрипт X», «создай игру» | 30–60 сек |
 
-Переключаются кнопкой слева от микрофона:
+### Главный экран — WebView
 
-· 🤖 AI — задача идёт в DeepSeek, роутер сам решает, как выполнить
-· 🛠 Dev — автономная разработка APK через ai-dev
-· ▶ Shell — прямое выполнение shell-команды в Termux
+Внутри приложения открыт `chat.deepseek.com`. Работаешь с ним как обычно, но поверх — панель управления.
 
-Умная маршрутизация
+**Нижняя панель:**
 
-· uptime, df -h, ls → bash прямо в Termux (1 сек)
-· «открой вк», «открой ютуб» → приложение через a11y-сервис (2 сек)
-· «открой гитхаб», google.com → браузер (2 сек)
-· «напиши скрипт…», «создай игру» → DeepSeek + автономное выполнение (30–60 сек)
+- 📥 — вставить из буфера обмена в поле DeepSeek
+- 🚀 **Free** — из буфера/поля уходит `auto:команда` в inbox → Termux выполняет → результат сам вставляется обратно в поле DeepSeek
+- 🛠 **Dev** — список `.java` файлов проекта → задача в DeepSeek → ответ сохраняется → сборка
+- 🗑 — очистить поле ввода
 
-Свободный режим
+**Меню ≡:** История задач, Инструкция, Настройки.
 
-Плавающая кнопка поверх всех приложений:
+### Free-режим
 
-1. Пишешь задачу в DeepSeek
-2. DeepSeek отвечает кодом в блоке
-3. Копируешь блок
-4. Тапаешь зелёную ●
-5. Кнопка → жёлтая → выполняет → результат сам вставляется в DeepSeek
-6. Ты жмёшь «Отправить» сам
+```
+[Буфер]  или  [Поле DeepSeek]
+        ↓
+   inbox:  auto:uptime
+        ↓
+   Termux выполняет
+        ↓
+   результат → в поле DeepSeek
+```
 
-Интерфейс
+### Dev-режим (полный цикл)
 
-· 💬 Чат-стиль главного экрана
-· 🖥 Live-лог Termux с иконками событий
-· 📋 История задач с поиском и удалением
-· 🎨 3 темы — светлая / тёмная / системная
-· 📖 Встроенная документация (6 документов)
-· ✨ Wizard первого запуска
-· 🔔 Уведомления о завершении
+```
+1. 🛠 Dev → показывается список src/*.java из /sdcard/ai-tasker/source/
+2. Выбираешь файл → вводишь задачу
+3. Приложение читает файл, формирует промпт, отправляет в DeepSeek
+4. Ждёт ответа (с проверкой завершённости и стабильности)
+5. Парсит ответ, сохраняет в /sdcard/ai-tasker/pending/
+6. Диалог "Найдено: MainActivity.java (N симв.)" → "Применить и собрать"
+7. inbox: apply_patches:
+8. apply-patches копирует файл в проект → build.sh → APK
+9. Приложение следит за outbox → "APK готов" с путём
+```
 
-🏗 Архитектура
+### Умная маршрутизация (Free / auto:)
+
+- `uptime`, `df -h`, `ls` → bash прямо в Termux (1 сек)
+- «открой вк», «открой ютуб» → приложение через a11y-сервис (2 сек)
+- «открой гитхаб», google.com → браузер (2 сек)
+- «напиши скрипт…», «создай игру» → DeepSeek + автономное выполнение (30–60 сек)
+
+## 🏗 Архитектура
 
 ```
 Termux Assistant AI (APK)
-  • UI: голос, ввод, история, темы
-  • AiBridgeService (Accessibility)
-  • OverlayService (плавающая кнопка)
-  • QuickTileService (плитка в шторке)
+  ├─ MainActivity (WebView: chat.deepseek.com)
+  │    └─ JS-мост (TermuxSend, TermuxReadLast, …)
+  ├─ SettingsActivity / HistoryActivity / DocsActivity
+  ├─ OverlayService (плавающая кнопка)
+  └─ QuickTileService (плитка в шторке)
               │
-   /sdcard/ai-tasker/ + socket 127.0.0.1:8766
+   /sdcard/ai-tasker/ (inbox / outbox / pending / source)
               ▼
 Termux
-  • ai-tasker-daemon (слушает inbox)
-  • ai-router (маршрутизация)
-  • aib-auto / ai-dev (DeepSeek)
-  • aib / grab / ai-cycle (утилиты)
+  ├─ ai-tasker-daemon — слушает inbox
+  ├─ apply-patches    — копирует pending в проект + build.sh
+  ├─ export-source    — копирует src/ и res/ в /sdcard/ai-tasker/source/
+  ├─ ai-router        — маршрутизация auto:
+  └─ aib / grab / ai-cycle
 ```
 
-📦 Установка
+## 📦 Установка
 
-Что нужно (вручную)
+**Что нужно (вручную):**
 
-1. Termux — https://f-droid.org/packages/com.termux/
-2. Termux:API — https://f-droid.org/packages/com.termux.api/
-3. DeepSeek — Google Play
+1. [Termux](https://f-droid.org/packages/com.termux/) — F-Droid
+2. [Termux:API](https://f-droid.org/packages/com.termux.api/) — F-Droid
+3. [DeepSeek](https://www.deepseek.com/) — Play / сайт
 
-Установка ассистента
+**Установка ассистента:**
 
 ```bash
 # 1. Клонировать репозиторий
@@ -109,15 +119,12 @@ cd termux-assistant-ai
 # 2. Установить скрипты и промпты
 bash release-utils/install.sh
 
-# 3. Установить APK (из Releases репозитория)
-# Скачай → установи вручную
-
-# 4. В приложении: Настройки → AI Bridge Service → включить
+# 3. Установить APK из Releases (скачать → установить вручную)
 ```
 
-Подробнее — в docs/INSTALL.md
+Подробнее — в `docs/INSTALL.md`.
 
-🔨 Сборка из исходников
+## 🔨 Сборка из исходников
 
 ```bash
 cd termux-assistant-ai
@@ -127,50 +134,52 @@ bash build.sh
 # Результат: /sdcard/Download/ai-tasker-build-*.apk
 ```
 
-Требования: aapt2, d8, apksigner, openjdk-21, zip в Termux.
+Требования: `aapt2`, `d8`, `apksigner`, `openjdk-21`, `zip` в Termux.
 
-📚 Документация
+## 📚 Документация
 
-Файл Что внутри
-docs/INSTALL.md Пошаговая установка
-docs/USER_GUIDE.md Ежедневное использование
-docs/DEV_GUIDE.md Как улучшить приложение
-docs/TERMUX_COMMANDS.md Все команды Termux
-docs/ROADMAP.md Что сделано и что в планах
+| Файл | Что внутри |
+|------|-----------|
+| `docs/INSTALL.md` | Пошаговая установка |
+| `docs/USER_GUIDE.md` | Ежедневное использование |
+| `docs/DEV_GUIDE.md` | Как улучшить приложение |
+| `docs/TERMUX_COMMANDS.md` | Все команды Termux |
+| `docs/ROADMAP.md` | Что сделано и что в планах |
 
-🎯 Команды Termux (шпаргалка)
+## 🎯 Команды Termux (шпаргалка)
 
 ```bash
 # Управление сервисом
 aictl-up
 aictl status
 aib ping
-aib openurl "https://ya.ru"
-aib openapp com.vkontakte.android
 
 # Роутер
 ai-router "uptime"
 ai-router "открой вк"
 ai-router "открой гитхаб"
 
+# Dev (ручной запуск)
+~/bin/ai-tasker-daemon        # держать запущенным
+apply-patches                 # применить pending и собрать
+export-source                 # обновить /sdcard/ai-tasker/source/
+
 # Автономная разработка
 ai-dev "задача"
 ```
 
-🛡 Безопасность
+## 🛡 Безопасность
 
-· Blacklist команд — rm -rf /, mkfs, dd of=/dev, shutdown, reboot, fork-бомба
-· Автобэкап проекта перед любой правкой кода
-· Детектор зацикливания — 3 одинаковые итерации → автостоп
-· Абсолютный таймаут — максимум 30 минут на задачу
-· Детектор провала — если ничего не сделал → status: failed
+- Blacklist команд: `rm -rf /`, `mkfs`, `dd of=/dev`, `shutdown`, `reboot`, fork-бомба
+- **Автобэкап** проекта перед любой правкой (`~/backups/auto-dev-*`)
+- При падении сборки — автоматический откат из бэкапа
+- Детектор зацикливания — 3 одинаковые итерации → автостоп
+- Абсолютный таймаут задачи
 
-📄 Лицензия
+## 📄 Лицензия
 
-MIT — см. LICENSE
+MIT — см. `LICENSE`.
 
-👤 Автор
+## 👤 Автор
 
-CR4CODE — https://github.com/CR4CODE
-
----
+**CR4CODE** — https://github.com/CR4CODE
