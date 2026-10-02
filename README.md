@@ -7,15 +7,15 @@
 ## 🌐 Ссылки
 
 - **Лендинг** — https://cr4code.github.io/Termux-Assistant-AI/
-- **Скачать APK v2.2** — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
+- **Скачать APK v2.3** — https://github.com/CR4CODE/Termux-Assistant-AI/releases/latest
 - **Документация** — `docs/`
 - **Сообщество ВК** — https://vk.ru/termuxai
 
-## ✨ Что нового в v2.2
+## ✨ Что нового в v2.3
 
-**WebView-архитектура + рабочий Dev-цикл.**
+**HTTP-обмен между приложением и Termux + стабильный Free-режим.**
 
-Главный экран — это теперь сам `chat.deepseek.com` внутри приложения. Никаких эмуляций кликов и a11y-скриншотов — прямой доступ к DOM через JS-мост.
+Больше не файлы в `/sdcard`, а HTTP на `127.0.0.1:8767`. Обмен <100 мс, никаких гонок и прав. Free-режим работает и с кавычками, и с юникодом.
 
 - 🌐 **WebView с DeepSeek** — полноценный чат, но под нашим контролем
 - 🔗 **JS-мост** (`TermuxInsertText`, `TermuxSend`, `TermuxReadLast`, …)
