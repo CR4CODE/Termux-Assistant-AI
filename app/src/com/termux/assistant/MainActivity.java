@@ -96,7 +96,14 @@ public class MainActivity extends Activity {
         Button freeBtn = findViewById(R.id.btn_ds_free);
         if (freeBtn != null) {
             freeBtn.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { startCycle(true); }
+                @Override public void onClick(View v) { startCycle(true, "auto:"); }
+            });
+        }
+
+        Button devBtn = findViewById(R.id.btn_ds_dev);
+        if (devBtn != null) {
+            devBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { startDevDialog(); }
             });
         }
 
@@ -194,10 +201,181 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(js, null);
     }
 
+    private void startDevDialog() {
+        setActiveMode("dev");
+        webView.evaluateJavascript("window.TermuxGetInput();",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                String text = unescapeJs(value);
+                if (text == null || text.trim().isEmpty()) {
+                    text = readClipboard();
+                }
+                if (text == null || text.trim().isEmpty()) {
+                    toast("Введи задачу в поле DeepSeek или скопируй в буфер");
+                    return;
+                }
+                final String task = text.trim();
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Режим разработки")
+                    .setMessage("Задача:\n\n" + task + "\n\nDeepSeek ответит файлами, мы применим и соберём APK.")
+                    .setPositiveButton("Запустить", new DialogInterface.OnClickListener() {
+                        @Override public void onClick(DialogInterface d, int w) { runDevTask(task); }
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+            }
+        });
+    }
+
+    private void runDevTask(String task) {
+        if (statusLabel != null) statusLabel.setText("Отправлено в DeepSeek...");
+
+        String prompt =
+            "Ты разработчик Android-приложения на Java (не Kotlin).\n"
+            + "Проект: Termux Assistant AI.\n"
+            + "Структура: src/com/termux/assistant/*.java, res/layout/*.xml, res/values/*.xml, AndroidManifest.xml\n\n"
+            + "Задача: " + task + "\n\n"
+            + "Отвечай ТОЛЬКО файлами в таком формате (без объяснений, без патчей):\n\n"
+            + "```java src/com/termux/assistant/File.java\n<полный код файла>\n```\n"
+            + "```xml res/layout/file.xml\n<полный xml>\n```";
+
+        String escaped = prompt.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+        webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
+
+        waitForDevReply(0);
+    }
+
+    private void waitForDevReply(final int attempt) {
+        if (attempt > 40) {
+            if (statusLabel != null) statusLabel.setText("Таймаут - DeepSeek не ответил");
+            return;
+        }
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxReadLast();",
+                    new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String value) {
+                        String reply = unescapeJs(value);
+                        if (reply == null || reply.trim().isEmpty()) {
+                            if (statusLabel != null) statusLabel.setText("Ждём ответа... (" + (attempt * 3) + " сек)");
+                            waitForDevReply(attempt + 1);
+                            return;
+                        }
+                        parseAndSaveFiles(reply);
+                    }
+                });
+            }
+        }, 3000);
+    }
+
+    private void parseAndSaveFiles(String reply) {
+        try {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "```(\\w+)\\s+([^\\s`\\n]+)\\s*\\n([\\s\\S]*?)```");
+            java.util.regex.Matcher m = p.matcher(reply);
+            java.util.List<String> paths = new java.util.ArrayList<>();
+
+            java.io.File pending = new java.io.File("/sdcard/ai-tasker/pending");
+            pending.mkdirs();
+            java.io.File[] oldFiles = pending.listFiles();
+            if (oldFiles != null) for (java.io.File f : oldFiles) f.delete();
+
+            while (m.find()) {
+                String path = m.group(2).trim();
+                String content = m.group(3);
+                if (!path.endsWith(".java") && !path.endsWith(".xml")) continue;
+                java.io.File dest = new java.io.File(pending, path);
+                dest.getParentFile().mkdirs();
+                java.io.FileWriter w = new java.io.FileWriter(dest);
+                w.write(content);
+                w.close();
+                paths.add(path);
+            }
+
+            if (paths.isEmpty()) {
+                if (statusLabel != null) statusLabel.setText("Не нашёл файлов в ответе");
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Пусто")
+                    .setMessage("DeepSeek не вернул файлов в правильном формате.")
+                    .setPositiveButton("OK", null)
+                    .show();
+                return;
+            }
+
+            StringBuilder list = new StringBuilder();
+            for (String pth : paths) list.append("  ").append(pth).append("\n");
+
+            new AlertDialog.Builder(MainActivity.this)
+                .setTitle("Найдено " + paths.size() + " файлов")
+                .setMessage("DeepSeek предлагает применить:\n\n" + list.toString())
+                .setPositiveButton("Применить и собрать", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) { applyAndBuild(); }
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+
+            if (statusLabel != null) statusLabel.setText("Найдено " + paths.size() + " файлов");
+
+        } catch (Exception e) {
+            toast("Ошибка парсинга: " + e.getMessage());
+        }
+    }
+
+    private void applyAndBuild() {
+        try {
+            java.io.File dir = new java.io.File(INBOX);
+            dir.mkdirs();
+            String id = "dev" + System.currentTimeMillis();
+            java.io.File f = new java.io.File(dir, "task-" + id + ".txt");
+            java.io.FileWriter w = new java.io.FileWriter(f);
+            w.write("apply_patches:");
+            w.close();
+            if (statusLabel != null) statusLabel.setText("Применяю и собираю APK...");
+            toast("Применяю файлы и собираю APK");
+        } catch (Exception e) {
+            toast("Ошибка: " + e.getMessage());
+        }
+    }
+
+    private void setActiveMode(String mode) {
+        Button freeBtn = findViewById(R.id.btn_ds_free);
+        Button devBtn = findViewById(R.id.btn_ds_dev);
+        if (freeBtn == null || devBtn == null) return;
+
+        float freeTarget, devTarget;
+        if ("free".equals(mode)) {
+            freeTarget = 1.15f; devTarget = 0.85f;
+        } else if ("dev".equals(mode)) {
+            freeTarget = 0.85f; devTarget = 1.15f;
+        } else {
+            freeTarget = 1f; devTarget = 1f;
+        }
+        animateWeights(freeBtn, devBtn, freeTarget, devTarget);
+    }
+
+    private void animateWeights(final Button free, final Button dev, final float freeTarget, final float devTarget) {
+        final android.widget.LinearLayout.LayoutParams pFree = (android.widget.LinearLayout.LayoutParams) free.getLayoutParams();
+        final android.widget.LinearLayout.LayoutParams pDev = (android.widget.LinearLayout.LayoutParams) dev.getLayoutParams();
+        final float fStart = pFree.weight;
+        final float dStart = pDev.weight;
+
+        android.animation.ValueAnimator anim = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        anim.setDuration(400);
+        anim.addUpdateListener(new android.animation.ValueAnimator.AnimatorUpdateListener() {
+            @Override public void onAnimationUpdate(android.animation.ValueAnimator a) {
+                float t = a.getAnimatedFraction();
+                pFree.weight = fStart + (freeTarget - fStart) * t;
+                pDev.weight = dStart + (devTarget - dStart) * t;
+                free.setLayoutParams(pFree);
+                dev.setLayoutParams(pDev);
+            }
+        });
+        anim.start();
+    }
+
     private void openMenu() {
         final String[] items = new String[]{
             "📋  История задач",
-            "🛠  Разработка",
             "📖  Инструкция",
             "⚙️  Настройки"
         };
@@ -207,9 +385,8 @@ public class MainActivity extends Activity {
                 @Override public void onClick(DialogInterface d, int which) {
                     Intent i = null;
                     if (which == 0) i = new Intent(MainActivity.this, HistoryActivity.class);
-                    else if (which == 1) i = new Intent(MainActivity.this, DevActivity.class);
-                    else if (which == 2) i = new Intent(MainActivity.this, DocsActivity.class);
-                    else if (which == 3) i = new Intent(MainActivity.this, SettingsActivity.class);
+                    else if (which == 1) i = new Intent(MainActivity.this, DocsActivity.class);
+                    else if (which == 2) i = new Intent(MainActivity.this, SettingsActivity.class);
                     if (i != null) startActivity(i);
                 }
             })
@@ -236,7 +413,8 @@ public class MainActivity extends Activity {
         if (statusLabel != null) statusLabel.setText("Поле очищено");
     }
 
-    private void startCycle(final boolean autoSend) {
+    private void startCycle(final boolean autoSend, final String prefix) {
+        setActiveMode("free");
         long now = System.currentTimeMillis();
         if (now - lastSendTime < PAUSE_BETWEEN_MS) {
             long wait = (PAUSE_BETWEEN_MS - (now - lastSendTime)) / 1000;
@@ -249,7 +427,7 @@ public class MainActivity extends Activity {
             @Override public void onReceiveValue(String value) {
                 String text = unescapeJs(value);
                 if (text != null && !text.trim().isEmpty()) {
-                    runFullCycle(text.trim(), autoSend);
+                    runFullCycle(text.trim(), autoSend, prefix);
                     return;
                 }
                 String fromClip = readClipboard();
@@ -257,28 +435,30 @@ public class MainActivity extends Activity {
                     toast("Поле и буфер пусты — скопируй код из DeepSeek");
                     return;
                 }
-                runFullCycle(fromClip.trim(), autoSend);
+                runFullCycle(fromClip.trim(), autoSend, prefix);
             }
         });
     }
 
-    private void runFullCycle(final String taskText, final boolean autoSend) {
+    private void runFullCycle(final String taskText, final boolean autoSend, final String prefix) {
         lastSendTime = System.currentTimeMillis();
 
         try {
             File dir = new File(INBOX);
             dir.mkdirs();
-            cycleTaskId = "buf" + System.currentTimeMillis();
+            cycleTaskId = (prefix.equals("dev:") ? "dev" : "buf") + System.currentTimeMillis();
             File f = new File(dir, "task-" + cycleTaskId + ".txt");
             FileWriter w = new FileWriter(f);
-            w.write("auto:" + taskText);
+            w.write(prefix + taskText);
             w.close();
         } catch (Exception e) {
             toast("Ошибка записи: " + e.getMessage());
             return;
         }
 
-        if (statusLabel != null) statusLabel.setText("⏳ Выполняется в Termux…");
+        if (statusLabel != null) {
+            statusLabel.setText(prefix.equals("dev:") ? "🛠 Отправлено в ai-dev…" : "⏳ Выполняется в Termux…");
+        }
         cycleStartTime = System.currentTimeMillis();
 
         cycleRunnable = new Runnable() {
@@ -296,9 +476,10 @@ public class MainActivity extends Activity {
                         String escaped = result.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
                         webView.evaluateJavascript("window.TermuxInsertText('" + escaped + "');", null);
                         if (statusLabel != null) {
+                            String prefixName = prefix.equals("dev:") ? "🛠" : "✓";
                             statusLabel.setText(autoSend
-                                ? "✓ Готово — отправляю"
-                                : "✓ Готово — жми отправить");
+                                ? prefixName + " Готово — отправляю"
+                                : prefixName + " Готово — жми отправить");
                         }
                         if (autoSend) {
                             webView.postDelayed(new Runnable() {
@@ -309,6 +490,9 @@ public class MainActivity extends Activity {
                         } else {
                             toast("Готово. Проверь поле");
                         }
+                        webView.postDelayed(new Runnable() {
+                            @Override public void run() { setActiveMode("none"); }
+                        }, 2000);
                         return;
                     }
                 }

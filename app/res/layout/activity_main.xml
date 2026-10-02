@@ -6,301 +6,113 @@
     android:background="?attr/appBg"
     android:fitsSystemWindows="true">
 
+    <!-- Шапка: ≡ | DeepSeek · статус | 🤖 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/app_name"
-            android:textColor="?attr/appTextPrimary"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.01"/>
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="6dp">
 
         <Button
-            android:id="@+id/btn_settings"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:id="@+id/btn_menu"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:minWidth="0dp"
-            android:paddingLeft="12dp"
-            android:paddingRight="12dp"
-            android:text="@string/btn_settings"
-            android:textColor="?attr/appAccent"
-            android:textSize="13sp"
+            android:minHeight="0dp"
+            android:paddingLeft="0dp"
+            android:paddingRight="0dp"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="≡"
+            android:textColor="?attr/appTextPrimary"
+            android:textSize="22sp"
             android:textAllCaps="false"
             android:background="@android:color/transparent"/>
-    </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingLeft="16dp"
-        android:paddingRight="16dp"
-        android:paddingBottom="8dp">
-
-        <Button
-            android:id="@+id/btn_free_mode"
+        <TextView
+            android:id="@+id/ds_status"
             android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:minHeight="0dp"
-            android:text="🤖 ВЫКЛ"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            style="@style/SecondaryButton"/>
-
-        <Button
-            android:id="@+id/btn_open_history"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:minHeight="0dp"
-            android:text="📋 История"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            style="@style/PrimaryButton"/>
-
-        <Button
-            android:id="@+id/btn_deepseek"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:minHeight="0dp"
-            android:text="🐋 DeepSeek"
-            android:textSize="12sp"
-            android:textAllCaps="false"
-            style="@style/PrimaryButton"/>
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/log_panel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginLeft="16dp"
-        android:layout_marginRight="16dp"
-        android:layout_marginBottom="8dp"
-        android:background="@drawable/bg_card"
-        android:padding="10dp">
-
-        <LinearLayout
-            android:id="@+id/log_header"
-            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:clickable="true"
-            android:focusable="true"
-            android:paddingBottom="4dp">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="🖥 Терминал"
-                android:textColor="?attr/appTextSecondary"
-                android:textSize="11sp"
-                android:letterSpacing="0.08"/>
-
-            <TextView
-                android:id="@+id/log_toggle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="▾"
-                android:textColor="?attr/appTextSecondary"
-                android:textSize="14sp"
-                android:paddingLeft="8dp"
-                android:paddingRight="8dp"/>
-        </LinearLayout>
-
-        <ScrollView
-            android:id="@+id/log_scroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxHeight="120dp"
-            android:scrollbars="none">
-
-            <TextView
-                android:id="@+id/log_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="?attr/appTextSecondary"
-                android:textSize="11sp"
-                android:fontFamily="@font/jetbrains_mono"
-                android:lineSpacingExtra="2dp"
-                android:text="Ожидание активности…"/>
-        </ScrollView>
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="DeepSeek"
+            android:textColor="?attr/appTextSecondary"
+            android:textSize="12sp"
+            android:letterSpacing="0.03"
+            android:maxLines="1"
+            android:ellipsize="end"/>
     </LinearLayout>
 
-    <FrameLayout
+    <ProgressBar
+        android:id="@+id/ds_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressTint="?attr/appAccent"
+        android:progress="0"
+        android:visibility="gone"/>
+
+    <WebView
+        android:id="@+id/ds_webview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"/>
 
-        <ListView
-            android:id="@+id/list_tasks"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone"
-            android:paddingLeft="16dp"
-            android:paddingRight="16dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="8dp"
-            android:clipToPadding="false"
-            android:scrollbarStyle="outsideOverlay"
-            android:divider="@null"
-            android:dividerHeight="0dp"/>
-
-        <LinearLayout
-            android:id="@+id/empty_history"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:padding="32dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="●"
-                android:textColor="?attr/appAccent"
-                android:textSize="56sp"
-                android:paddingBottom="20dp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Termux Assistant AI"
-                android:textColor="?attr/appTextPrimary"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:paddingBottom="8dp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Одна строка. Ты пишешь — она делает."
-                android:textColor="?attr/appTextSecondary"
-                android:textSize="14sp"
-                android:gravity="center"
-                android:paddingBottom="24dp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Напиши первую задачу ниже 👇"
-                android:textColor="?attr/appTextSecondary"
-                android:textSize="13sp"
-                android:gravity="center"/>
-        </LinearLayout>
-    </FrameLayout>
-
+    <!-- Нижняя панель: 📥 | 🚀 Free | 🗑 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:background="?attr/appBgCard"
-        android:padding="12dp">
+        android:paddingLeft="3dp"
+        android:paddingRight="3dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
 
         <Button
-            android:id="@+id/btn_mode"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:minWidth="64dp"
-            android:paddingLeft="10dp"
-            android:paddingRight="10dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="0dp"
-            android:insetLeft="0dp"
-            android:insetRight="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="🤖 AI"
-            android:textSize="13sp"
-            android:textAllCaps="false"
-            style="@style/SecondaryButton"/>
+            android:id="@+id/btn_ds_from_clip"
+            android:layout_width="40dp"
+            android:layout_height="46dp"
+            android:text="📥"
+            android:textSize="18sp"
+            style="@style/PanelButton.Secondary"/>
 
         <Button
-            android:id="@+id/btn_mic"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="0dp"
-            android:insetLeft="0dp"
-            android:insetRight="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="🎤"
-            android:textSize="20sp"
-            style="@style/PrimaryButton"/>
-
-        <EditText
-            android:id="@+id/input_task"
+            android:id="@+id/btn_ds_free"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="46dp"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:hint="@string/input_hint"
-            android:textColorHint="?attr/appTextSecondary"
-            android:textColor="?attr/appTextPrimary"
-            android:background="@drawable/bg_input"
-            android:paddingLeft="14dp"
-            android:paddingRight="14dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:minLines="1"
-            android:maxLines="4"
-            android:gravity="center_vertical|start"
-            android:inputType="textMultiLine|textCapSentences"
-            android:fontFamily="@font/syne"/>
+            android:layout_marginStart="3dp"
+            android:text="🚀 Free"
+            android:textSize="12sp"
+            style="@style/PanelButton.Primary"/>
 
         <Button
-            android:id="@+id/btn_run"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="8dp"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:paddingTop="0dp"
-            android:paddingBottom="0dp"
-            android:insetLeft="0dp"
-            android:insetRight="0dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:text="→"
-            android:textSize="22sp"
-            style="@style/PrimaryButton"/>
-    </LinearLayout>
+            android:id="@+id/btn_ds_dev"
+            android:layout_width="0dp"
+            android:layout_height="46dp"
+            android:layout_weight="1"
+            android:layout_marginStart="3dp"
+            android:text="🛠 Dev"
+            android:textSize="12sp"
+            style="@style/PanelButton.Secondary"/>
 
-    <TextView
-        android:id="@+id/env_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:textColor="?attr/appTextSecondary"
-        android:textSize="11sp"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:background="?attr/appBgCard"/>
+        <Button
+            android:id="@+id/btn_ds_clear"
+            android:layout_width="40dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="3dp"
+            android:text="🗑"
+            android:textSize="18sp"
+            style="@style/PanelButton.Secondary"/>
+    </LinearLayout>
 
 </LinearLayout>
