@@ -137,7 +137,11 @@ def prepend_changelog(version, notes_text):
         src = f.read()
     date = datetime.now().strftime("%Y-%m-%d")
     header = f"## [{version}.0] — {date}\n\n"
-    entry = header + notes_text.strip() + "\n\n---\n\n"
+    body = notes_text.strip()
+    first_line = body.split("\n", 1)[0].strip()
+    if first_line.startswith("##") or (first_line.startswith("[") and "]" in first_line[:16]):
+        body = body.split("\n", 1)[1].lstrip("\n") if "\n" in body else ""
+    entry = header + body + "\n\n---\n\n"
     # Вставляем после первой строки "# Changelog\n\nВсе значимые изменения проекта.\n\n"
     marker = "Все значимые изменения проекта.\n\n"
     i = src.find(marker)
