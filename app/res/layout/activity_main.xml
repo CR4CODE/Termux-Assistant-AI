@@ -60,7 +60,7 @@
         android:progress="0"
         android:visibility="gone"/>
 
-    <WebView
+    <com.termux.assistant.LockableWebView
         android:id="@+id/ds_webview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -103,6 +103,15 @@
             android:layout_marginStart="3dp"
             android:text="🛠 Dev"
             android:textSize="12sp"
+            style="@style/PanelButton.Secondary"/>
+
+        <Button
+            android:id="@+id/btn_ds_kbd"
+            android:layout_width="40dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="3dp"
+            android:text="⌨️"
+            android:textSize="18sp"
             style="@style/PanelButton.Secondary"/>
 
         <Button

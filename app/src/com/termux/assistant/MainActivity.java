@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
     private static final String OUTBOX = "/sdcard/ai-tasker/outbox";
     private static final long PAUSE_BETWEEN_MS = 5000;
 
-    private WebView webView;
+    private LockableWebView webView;
     private ProgressBar progressBar;
     private TextView statusLabel;
 
@@ -126,6 +126,35 @@ public class MainActivity extends Activity {
             clearBtn.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { clearInput(); }
             });
+        }
+
+        final Button kbdBtn = findViewById(R.id.btn_ds_kbd);
+        if (kbdBtn != null) {
+            kbdBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    boolean locked = !webView.isKeyboardLocked();
+                    webView.setKeyboardLocked(locked);
+                    SharedPreferences sp = getSharedPreferences("app", MODE_PRIVATE);
+                    sp.edit().putBoolean("kbd_locked", locked).apply();
+                    updateKbdButton(kbdBtn, locked);
+                    webView.evaluateJavascript("window.TermuxSetKbdLocked(" + (locked ? "true" : "false") + ");", null);
+                    if (locked) {
+                        android.view.inputmethod.InputMethodManager imm =
+                            (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                        if (imm != null) {
+                            imm.hideSoftInputFromWindow(webView.getWindowToken(), 0);
+                        }
+                        webView.clearFocus();
+                        toast("Клавиатура заблокирована");
+                    } else {
+                        toast("Клавиатура разблокирована");
+                    }
+                }
+            });
+            SharedPreferences sp = getSharedPreferences("app", MODE_PRIVATE);
+            boolean locked = sp.getBoolean("kbd_locked", false);
+            webView.setKeyboardLocked(locked);
+            updateKbdButton(kbdBtn, locked);
         }
 
         WebSettings ws = webView.getSettings();
@@ -714,6 +743,17 @@ public class MainActivity extends Activity {
             .show();
     }
 
+    private void updateKbdButton(Button btn, boolean locked) {
+        if (btn == null) return;
+        if (locked) {
+            btn.setText("⌨");
+            btn.setAlpha(0.5f);
+        } else {
+            btn.setText("⌨️");
+            btn.setAlpha(1.0f);
+        }
+    }
+
     private void insertFromClipboard() {
         try {
             String text = readClipboard();
@@ -1039,6 +1079,25 @@ public class MainActivity extends Activity {
         + "best.dispatchEvent(new MouseEvent('click',opts));"
         + "return 'me:'+(best.getAttribute('aria-label')||'')+'|'+(best.className||'').slice(0,50);"
         + "}catch(e){return 'err2:'+e;}"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxSetKbdLocked = function(locked){"
+        + "try{"
+        + "var tas=document.querySelectorAll('textarea');"
+        + "for(var i=0;i<tas.length;i++){"
+        + "if(locked){"
+        + "tas[i].setAttribute('readonly','readonly');"
+        + "tas[i].setAttribute('inputmode','none');"
+        + "}else{"
+        + "tas[i].removeAttribute('readonly');"
+        + "tas[i].removeAttribute('inputmode');"
+        + "}"
+        + "}"
+        + "if(locked){"
+        + "var active=document.activeElement;"
+        + "if(active&&active.blur)active.blur();"
+        + "}"
+        + "return 'ok';"
         + "}catch(e){return 'err:'+e;}"
         + "};"
         + "window.TermuxGetInput = function(){"
