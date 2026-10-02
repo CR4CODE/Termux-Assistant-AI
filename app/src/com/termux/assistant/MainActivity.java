@@ -42,6 +42,9 @@ public class MainActivity extends Activity {
     private long lastSendTime = 0;
     private long cycleStartTime = 0;
     private String cycleTaskId = null;
+    private String currentDevFileName = null;
+    private String lastDevReply = "";
+    private int stableCount = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable cycleRunnable;
 
@@ -172,34 +175,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void debugBlue() {
-        String js = "(function(){"
-            + "var root=getComputedStyle(document.documentElement);"
-            + "var vars=[];"
-            + "for(var i=0;i<root.length;i++){"
-            + "var n=root[i];"
-            + "var v=root.getPropertyValue(n);"
-            + "if(v.indexOf('77')>=0||v.indexOf('107')>=0||v.indexOf('109')>=0||v.indexOf('4D6BFE')>=0||v.indexOf('rgb(77, 107, 254)')>=0){"
-            + "vars.push(n+': '+v);"
-            + "}"
-            + "}"
-            + "var all=document.querySelectorAll('*');"
-            + "var found=[];"
-            + "for(var i=0;i<all.length;i++){"
-            + "var e=all[i];"
-            + "var cs=getComputedStyle(e);"
-            + "var bg=cs.backgroundColor;"
-            + "var col=cs.color;"
-            + "var fill=cs.fill;"
-            + "if(bg&&(bg.indexOf('77, 107')>=0||bg.indexOf('77,107')>=0)){found.push('bg '+bg+' cls='+String(e.className||'-').substring(0,40));}"
-            + "if(fill&&(fill.indexOf('77, 107')>=0||fill.indexOf('77,107')>=0)){found.push('fill '+fill+' cls='+String(e.className||'-').substring(0,40));}"
-            + "}"
-            + "var out='--- CSS vars ---\\n'+vars.join('\\n')+'\\n\\n--- Elements (max 20) ---\\n'+found.slice(0,20).join('\\n');"
-            + "TermuxBridge.showDialog('Диагностика синего', out);"
-            + "return out;"
-            + "})();";
-        webView.evaluateJavascript(js, null);
-    }
+    
 
     private void startDevDialog() {
         setActiveMode("dev");
@@ -211,57 +187,164 @@ public class MainActivity extends Activity {
                     text = readClipboard();
                 }
                 if (text == null || text.trim().isEmpty()) {
-                    toast("Введи задачу в поле DeepSeek или скопируй в буфер");
+                    toast("Введи задачу в поле или скопируй в буфер");
                     return;
                 }
-                final String task = text.trim();
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Режим разработки")
-                    .setMessage("Задача:\n\n" + task + "\n\nDeepSeek ответит файлами, мы применим и соберём APK.")
-                    .setPositiveButton("Запустить", new DialogInterface.OnClickListener() {
-                        @Override public void onClick(DialogInterface d, int w) { runDevTask(task); }
-                    })
-                    .setNegativeButton("Отмена", null)
-                    .show();
+                final String finalTask = text.trim();
+                showFilePicker(finalTask);
             }
         });
     }
 
-    private void runDevTask(String task) {
-        if (statusLabel != null) statusLabel.setText("Отправлено в DeepSeek...");
+    private void showFilePicker(final String task) {
+        // Обновляем source через Termux-скрипт export-source
+        try {
+            java.io.File inbox = new java.io.File(INBOX);
+            inbox.mkdirs();
+            java.io.File f = new java.io.File(inbox, "task-export" + System.currentTimeMillis() + ".txt");
+            java.io.FileWriter w = new java.io.FileWriter(f);
+            w.write("export_source:");
+            w.close();
+        } catch (Exception e) {
+            toast("Ошибка: " + e.getMessage());
+            return;
+        }
 
-        String prompt =
-            "Ты разработчик Android-приложения на Java (не Kotlin).\n"
-            + "Проект: Termux Assistant AI.\n"
-            + "Структура: src/com/termux/assistant/*.java, res/layout/*.xml, res/values/*.xml, AndroidManifest.xml\n\n"
-            + "Задача: " + task + "\n\n"
-            + "Отвечай ТОЛЬКО файлами в таком формате (без объяснений, без патчей):\n\n"
-            + "```java src/com/termux/assistant/File.java\n<полный код файла>\n```\n"
-            + "```xml res/layout/file.xml\n<полный xml>\n```";
+        if (statusLabel != null) statusLabel.setText("Обновляю исходники...");
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                pickFileDelayed(task);
+            }
+        }, 2000);
+    }
 
-        String escaped = prompt.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n");
+    private void pickFileDelayed(final String task) {
+        java.io.File dir = new java.io.File("/sdcard/ai-tasker/source/src/com/termux/assistant");
+        if (!dir.exists()) {
+            toast("Проект не найден");
+            return;
+        }
+        java.io.File[] files = dir.listFiles(new java.io.FilenameFilter() {
+            @Override public boolean accept(java.io.File d, String name) {
+                return name.endsWith(".java");
+            }
+        });
+        if (files == null || files.length == 0) {
+            toast("Нет Java-файлов");
+            return;
+        }
+        java.util.Arrays.sort(files, new java.util.Comparator<java.io.File>() {
+            @Override public int compare(java.io.File a, java.io.File b) {
+                return a.getName().compareTo(b.getName());
+            }
+        });
+        final String[] names = new String[files.length];
+        for (int i = 0; i < files.length; i++) names[i] = files[i].getName();
+
+        new AlertDialog.Builder(this)
+            .setTitle("Какой файл изменить?")
+            .setItems(names, new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int which) {
+                    runDevTaskOnFile(task, names[which]);
+                }
+            })
+            .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { setActiveMode("none"); }
+            })
+            .show();
+    }
+
+    private void runDevTaskOnFile(String task, String fileName) {
+        String content = "";
+        try {
+            java.io.File f = new java.io.File("/sdcard/ai-tasker/source/src/com/termux/assistant/" + fileName);
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = r.readLine()) != null) sb.append(line).append("\n");
+            r.close();
+            content = sb.toString();
+        } catch (Exception e) {
+            toast("Не могу прочитать: " + e.getMessage());
+            return;
+        }
+
+        currentDevFileName = fileName;
+        lastDevReply = "";
+        stableCount = 0;
+        if (statusLabel != null) statusLabel.setText("Отправлено в DeepSeek (" + fileName + ")");
+
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("Файл проекта: src/com/termux/assistant/").append(fileName).append("\n\n");
+        prompt.append("Текущий код:\n```java\n").append(content).append("\n```\n\n");
+        prompt.append("Задача: ").append(task).append("\n\n");
+        prompt.append("Верни ПОЛНЫЙ обновлённый файл целиком, начиная с package. ");
+        prompt.append("Один блок кода:\n");
+        prompt.append("```java src/com/termux/assistant/").append(fileName).append("\n");
+        prompt.append("<полный код>\n```\n");
+        prompt.append("Никаких объяснений.");
+
+        String raw = prompt.toString();
+        // Раскрываем литеральные escape-последовательности в реальные символы
+        raw = raw.replace("\\\\n", "\n").replace("\\\\r", "\r").replace("\\\\t", "\t");
+        // Правильно экранируем для JS-строки
+        String escaped = raw
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\\\n")
+            .replace("\r", "\\\\r")
+            .replace("\t", "\\\\t");
+
         webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
-
         waitForDevReply(0);
     }
 
     private void waitForDevReply(final int attempt) {
-        if (attempt > 40) {
-            if (statusLabel != null) statusLabel.setText("Таймаут - DeepSeek не ответил");
+        if (attempt > 60) {
+            if (statusLabel != null) statusLabel.setText("Таймаут 180 сек");
+            setActiveMode("none");
             return;
         }
         webView.postDelayed(new Runnable() {
             @Override public void run() {
+                if (statusLabel != null) statusLabel.setText("Ждём ответа... (" + (attempt * 3) + " сек)");
                 webView.evaluateJavascript("window.TermuxReadLast();",
                     new android.webkit.ValueCallback<String>() {
                     @Override public void onReceiveValue(String value) {
                         String reply = unescapeJs(value);
-                        if (reply == null || reply.trim().isEmpty()) {
-                            if (statusLabel != null) statusLabel.setText("Ждём ответа... (" + (attempt * 3) + " сек)");
+                        if (reply == null) reply = "";
+                        reply = reply.trim();
+
+                        if (reply.length() < 200) {
                             waitForDevReply(attempt + 1);
                             return;
                         }
-                        parseAndSaveFiles(reply);
+
+                        boolean hasCode = reply.contains("package ") || reply.contains("public class ") || reply.contains("import android");
+                        boolean enoughTime = attempt >= 5; // 15 секунд минимум
+                        boolean bigEnough = reply.length() > 5000;
+
+                        // Если ответ большой — парсим сразу, не ждём
+                        if (bigEnough && attempt >= 5) {
+                            parseAndSaveFiles(reply);
+                            return;
+                        }
+
+                        if (hasCode && enoughTime) {
+                            // Дополнительно ждём 1 цикл (3 сек) и проверяем, что длина не выросла сильно
+                            if (reply.equals(lastDevReply)) {
+                                parseAndSaveFiles(reply);
+                                return;
+                            }
+                            lastDevReply = reply;
+                            if (attempt >= 15) {
+                                // 45 секунд прошло — парсим что есть
+                                parseAndSaveFiles(reply);
+                                return;
+                            }
+                        }
+
+                        waitForDevReply(attempt + 1);
                     }
                 });
             }
@@ -270,54 +353,79 @@ public class MainActivity extends Activity {
 
     private void parseAndSaveFiles(String reply) {
         try {
-            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
-                "```(\\w+)\\s+([^\\s`\\n]+)\\s*\\n([\\s\\S]*?)```");
-            java.util.regex.Matcher m = p.matcher(reply);
-            java.util.List<String> paths = new java.util.ArrayList<>();
+            String content = reply;
 
+            // Ищем начало кода — с "package com.termux"
+            int pkgIdx = content.indexOf("package com.termux");
+            if (pkgIdx < 0) pkgIdx = content.indexOf("package ");
+            if (pkgIdx < 0) pkgIdx = content.indexOf("public class ");
+            if (pkgIdx < 0) pkgIdx = content.indexOf("<?xml");
+
+            if (pkgIdx < 0) {
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Не нашёл начало кода")
+                    .setMessage("В ответе нет package/class/xml.\n\nНачало:\n" + content.substring(0, Math.min(200, content.length())))
+                    .setPositiveButton("OK", null)
+                    .show();
+                setActiveMode("none");
+                return;
+            }
+
+            content = content.substring(pkgIdx).trim();
+
+
+            if (content.length() < 500) {
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Слишком коротко")
+                    .setMessage("Найдено " + content.length() + " симв. Это слишком мало.\n\nПопробуй ещё раз в новом чате.")
+                    .setPositiveButton("OK", null)
+                    .show();
+                setActiveMode("none");
+                return;
+            }
+
+            // Сохраняем как выбранный пользователем файл
             java.io.File pending = new java.io.File("/sdcard/ai-tasker/pending");
             pending.mkdirs();
             java.io.File[] oldFiles = pending.listFiles();
             if (oldFiles != null) for (java.io.File f : oldFiles) f.delete();
 
-            while (m.find()) {
-                String path = m.group(2).trim();
-                String content = m.group(3);
-                if (!path.endsWith(".java") && !path.endsWith(".xml")) continue;
-                java.io.File dest = new java.io.File(pending, path);
-                dest.getParentFile().mkdirs();
-                java.io.FileWriter w = new java.io.FileWriter(dest);
-                w.write(content);
-                w.close();
-                paths.add(path);
+            String fileName = (currentDevFileName != null) ? currentDevFileName : "NewFile.java";
+            String relPath = fileName.endsWith(".xml")
+                ? "res/layout/" + fileName
+                : "src/com/termux/assistant/" + fileName;
+
+            // САНИТАЙЗЕР: чиним экранированные кавычки
+            // DeepSeek получает наш код с \" вместо " (баг экранирования JS).
+            // Обратно заменяем \" -> " ТОЛЬКО если их много (признак сбоя)
+            int dqCount = content.split("\\\\\"", -1).length - 1;
+            int realDq = content.split("\"", -1).length - 1;
+            if (dqCount > 10 && dqCount > realDq / 2) {
+                content = content.replace("\\\\\"", "\"");
+                android.util.Log.i("DevSanitize", "Заменено кавычек: " + dqCount);
             }
 
-            if (paths.isEmpty()) {
-                if (statusLabel != null) statusLabel.setText("Не нашёл файлов в ответе");
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Пусто")
-                    .setMessage("DeepSeek не вернул файлов в правильном формате.")
-                    .setPositiveButton("OK", null)
-                    .show();
-                return;
-            }
-
-            StringBuilder list = new StringBuilder();
-            for (String pth : paths) list.append("  ").append(pth).append("\n");
+            java.io.File dest = new java.io.File(pending, relPath);
+            dest.getParentFile().mkdirs();
+            java.io.FileWriter w = new java.io.FileWriter(dest);
+            w.write(content);
+            w.close();
 
             new AlertDialog.Builder(MainActivity.this)
-                .setTitle("Найдено " + paths.size() + " файлов")
-                .setMessage("DeepSeek предлагает применить:\n\n" + list.toString())
+                .setTitle("Найдено: " + fileName)
+                .setMessage("Размер: " + content.length() + " симв.\n\nПуть: " + relPath + "\n\nПрименить?")
                 .setPositiveButton("Применить и собрать", new DialogInterface.OnClickListener() {
-                    @Override public void onClick(DialogInterface d, int w) { applyAndBuild(); }
+                    @Override public void onClick(DialogInterface d, int wi) { applyAndBuild(); }
                 })
-                .setNegativeButton("Отмена", null)
+                .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int wi) { setActiveMode("none"); }
+                })
                 .show();
 
-            if (statusLabel != null) statusLabel.setText("Найдено " + paths.size() + " файлов");
+            if (statusLabel != null) statusLabel.setText("Найдено: " + fileName + " (" + content.length() + ")");
 
         } catch (Exception e) {
-            toast("Ошибка парсинга: " + e.getMessage());
+            toast("Ошибка: " + e.getMessage());
         }
     }
 
@@ -372,6 +480,8 @@ public class MainActivity extends Activity {
         });
         anim.start();
     }
+
+    
 
     private void openMenu() {
         final String[] items = new String[]{
@@ -534,13 +644,43 @@ public class MainActivity extends Activity {
 
     private String unescapeJs(String value) {
         if (value == null) return null;
-        String s = value;
-        if (s.startsWith("\"") && s.endsWith("\"")) {
+        String s = value.trim();
+        if (s.length() >= 2 && s.charAt(0) == '"' && s.charAt(s.length() - 1) == '"') {
             s = s.substring(1, s.length() - 1);
         }
-        s = s.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
-        return s;
+        StringBuilder out = new StringBuilder(s.length());
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 1 < s.length()) {
+                char n = s.charAt(i + 1);
+                switch (n) {
+                    case 'n': out.append('\n'); i += 2; break;
+                    case 'r': out.append('\r'); i += 2; break;
+                    case 't': out.append('\t'); i += 2; break;
+                    case '"': out.append('"'); i += 2; break;
+                    case '\\': out.append('\\'); i += 2; break;
+                    case '/': out.append('/'); i += 2; break;
+                    case 'b': out.append('\b'); i += 2; break;
+                    case 'f': out.append('\f'); i += 2; break;
+                    case 'u':
+                        if (i + 5 < s.length()) {
+                            try {
+                                out.append((char) Integer.parseInt(s.substring(i + 2, i + 6), 16));
+                                i += 6;
+                            } catch (Exception e) { out.append(c); i++; }
+                        } else { out.append(c); i++; }
+                        break;
+                    default:
+                        out.append(c); i++; break;
+                }
+            } else {
+                out.append(c); i++;
+            }
+        }
+        return out.toString();
     }
+
 
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
@@ -666,6 +806,54 @@ public class MainActivity extends Activity {
         + "ta.dispatchEvent(new Event('input',{bubbles:true}));"
         + "return 'ok';"
         + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxSend = function(text){"
+        + "try{"
+        + "var ins=window.TermuxInsertText(text);"
+        + "if(ins!=='ok')return ins;"
+        + "setTimeout(function(){window.TermuxFindAndClick();},500);"
+        + "return 'ok';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxIsGenerating = function(){"
+        + "try{"
+        + "var ta=document.querySelector('textarea');"
+        + "if(!ta)return false;"
+        + "var taR=ta.getBoundingClientRect();"
+        + "var all=document.querySelectorAll('[role=button],button');"
+        + "for(var i=0;i<all.length;i++){"
+        + "var b=all[i];var r=b.getBoundingClientRect();"
+        + "if(r.width<20||r.width>80)continue;"
+        + "if(r.height<20||r.height>80)continue;"
+        + "if(r.left<taR.left-30)continue;"
+        + "if(r.top<taR.top-30)continue;"
+        + "if(r.top>taR.bottom+150)continue;"
+        + "if(r.right<window.innerWidth*0.8)continue;" // самая правая кнопка
+        + "var svg=b.querySelector('svg');"
+        + "if(!svg)continue;"
+        + "var cls=String(svg.getAttribute('class')||'')+' '+String(svg.innerHTML||'');"
+        + "if(cls.indexOf('stop')>=0||cls.indexOf('square')>=0)return true;"
+        + "}"
+        + "return false;"
+        + "}catch(e){return false;}"
+        + "};"
+        + "window.TermuxReadLast = function(){"
+        + "var all=document.querySelectorAll('[class*=markdown]');"
+        + "if(all.length===0)return '';"
+        + "var last=null;"
+        + "for(var i=0;i<all.length;i++){"
+        + "var r=all[i].getBoundingClientRect();"
+        + "if(r.width<50)continue;"
+        + "var t=(all[i].innerText||'').trim();"
+        + "if(t.length<200)continue;"
+        + "if(t.startsWith('Android Java проект'))continue;"
+        + "if(t.startsWith('We need'))continue;"
+        + "if(t.startsWith('Need to'))continue;"
+        + "if(t.startsWith('Let\\'s'))continue;"
+        + "if(t.indexOf('package com.termux')<0 && t.indexOf('import android')<0 && t.indexOf('public class')<0)continue;"
+        + "last=t;"
+        + "}"
+        + "return last||'';"
         + "};";
 
 
