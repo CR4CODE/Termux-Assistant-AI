@@ -73,6 +73,19 @@ def classify(task):
     bash_cmds = {"ls","df","du","uptime","date","whoami","pwd","free","ps","top",
                  "cat","head","tail","grep","find","echo","uname","env","unzip",
                  "curl","wget","ping","mkdir","touch","rm","cp","mv","chmod"}
+    # Shell-синтаксис -> точно bash
+    shell_markers = ("|", ">", "<", "&&", "||", ";", "$(", "`", "  ", "\n")
+    if any(m in t for m in shell_markers):
+        return "bash", t
+
+    # Известные команды Termux (даже если их нет в bash_cmds)
+    if first in {"gh","git","grep","find","head","tail","awk","sed","curl","wget",
+                 "cp","mv","rm","mkdir","chmod","touch","cat","echo","printf",
+                 "python","python3","pip","nano","vim","tar","unzip","zip",
+                 "termux-open","termux-notification","termux-clipboard-get",
+                 "termux-clipboard-set","am","pm","getprop","dumpsys","input"}:
+        return "bash", t
+
     if first in bash_cmds:
         return "bash", t
 
