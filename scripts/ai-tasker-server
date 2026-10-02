@@ -144,6 +144,67 @@ def vk_facts():
     return "\n\n".join(parts) or "(нет данных)", 0
 
 
+def release_facts(version):
+    """Собирает факты ТОЛЬКО о том, что вошло в новый релиз:
+       коммиты после последнего тега + текущий changelog + версия."""
+    import subprocess as sp
+    repo = os.path.expanduser("~/projects/termux-assistant-ai")
+    parts = []
+
+    # Последний тег
+    last_tag = ""
+    try:
+        r = sp.run(["git", "-C", repo, "tag", "--sort=-creatordate"],
+                   capture_output=True, timeout=10)
+        tags = [t for t in r.stdout.decode("utf-8", "replace").strip().split("\n") if t]
+        if tags:
+            last_tag = tags[0]
+    except Exception:
+        pass
+
+    # Коммиты после последнего тега
+    try:
+        cmd = ["git", "-C", repo, "log", "--oneline"]
+        if last_tag:
+            cmd.append(f"{last_tag}..HEAD")
+        else:
+            cmd += ["-30"]
+        r = sp.run(cmd, capture_output=True, timeout=10)
+        log = r.stdout.decode("utf-8", "replace").strip()
+        parts.append(f"=== Коммиты после последнего релиза ({last_tag or 'нет тега'}) ===\n" +
+                     (log or "(нет новых коммитов)"))
+    except Exception as e:
+        parts.append(f"git log err: {e}")
+
+    # Изменённые файлы (кратко)
+    try:
+        cmd = ["git", "-C", repo, "diff", "--stat"]
+        if last_tag:
+            cmd.append(f"{last_tag}..HEAD")
+        r = sp.run(cmd, capture_output=True, timeout=10)
+        diff = r.stdout.decode("utf-8", "replace").strip()
+        if diff:
+            # Только сводка (последняя строка)
+            summary = diff.split("\n")[-1]
+            parts.append("=== Объём изменений ===\n" + summary)
+    except Exception:
+        pass
+
+    # Последний тег и все теги
+    try:
+        r = sp.run(["git", "-C", repo, "tag"], capture_output=True, timeout=10)
+        tags = [t for t in r.stdout.decode("utf-8", "replace").strip().split("\n") if t]
+        parts.append("=== История релизов ===\n" + ", ".join(tags))
+    except Exception:
+        pass
+
+    # Целевая версия
+    parts.append(f"=== ЦЕЛЕВАЯ ВЕРСИЯ РЕЛИЗА ===\n{version}")
+    parts.append(f"Предыдущая версия: {last_tag or 'неизвестно'}")
+
+    return "\n\n".join(parts), 0
+
+
 def release_path(kind, version):
     return os.path.expanduser(f"~/.config/ai-tasker/release-{kind}-{version}.md")
 
@@ -242,6 +303,8 @@ class Handler(BaseHTTPRequestHandler):
             output, rc = run_export_source()
         elif task.startswith("vk_facts:"):
             output, rc = vk_facts()
+        elif task.startswith("release_facts:"):
+            output, rc = release_facts(task[14:].strip())
         elif task.startswith("release_notes:"):
             rest = task[14:]
             parts = rest.split(":", 1)

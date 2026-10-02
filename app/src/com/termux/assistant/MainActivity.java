@@ -814,7 +814,7 @@ public class MainActivity extends Activity {
         relVk = "";
         relStep = 0;
         if (statusLabel != null) statusLabel.setText("Собираю факты для v" + version + "...");
-        httpTask("vk_facts:", new HttpCallback() {
+        httpTask("release_facts:" + version, new HttpCallback() {
             @Override public void onResult(String status, String output, int rc, double elapsed) {
                 if (output == null || output.isEmpty()) {
                     toast("Не могу собрать факты");
@@ -834,7 +834,11 @@ public class MainActivity extends Activity {
         String p = "Составь Release Notes для GitHub релиза v" + releaseVersion + " проекта Termux Assistant AI.\n"
             + "На основе фактов ниже. Формат markdown.\n"
             + "Структура: ## v" + releaseVersion + " — <краткий заголовок>, затем разделы ### Главное / ### Исправлено / ### Добавлено (только те, что есть в фактах).\n"
-            + "Длина 800-1500 знаков. Без воды. Не выдумывай ничего.\n"
+            + "Длина 800-1500 знаков. Пиши человеческим языком для конечного пользователя.\n"
+            + "ЗАПРЕЩЕНО: хеши коммитов, префиксы feat/fix/chore/docs/revert, статистика файлов/строк, "
+            + "слова 'commit', 'коммит', технические идентификаторы.\n"
+            + "Пиши что пользователь получит: 'Добавили...', 'Исправили...', 'Теперь работает...'.\n"
+            + "Используй ТОЛЬКО то, что есть в разделе 'Коммиты после последнего релиза'.\n"
             + "Верни ТОЛЬКО текст, без пояснений.\n\nФАКТЫ:\n" + releaseFacts;
         webView.evaluateJavascript("window.TermuxClearInput();", null);
         webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
@@ -891,6 +895,8 @@ public class MainActivity extends Activity {
             + "Начни с '## [" + releaseVersion + ".0] — YYYY-MM-DD' (дата сегодня).\n"
             + "Разделы: ### Добавлено / ### Изменено / ### Исправлено (только те, что есть в фактах).\n"
             + "Каждый пункт — короткая строка с описанием. Длина 600-1200 знаков.\n"
+            + "ВАЖНО: используй ТОЛЬКО то, что есть в разделе 'Коммиты после последнего релиза'. "
+            + "Не выдумывай хеши и версии.\n"
             + "Верни ТОЛЬКО текст CHANGELOG-записи.\n\nФАКТЫ:\n" + releaseFacts;
         webView.evaluateJavascript("window.TermuxClearInput();", null);
         webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
@@ -908,6 +914,10 @@ public class MainActivity extends Activity {
             + "Формат: эмодзи + заголовок, разделители ━━━━━━━━━━━━━━━━━━, вступление, что нового, что было ранее, ссылки, хэштеги.\n"
             + "Длина 900-1300 знаков. Хэштеги: #termux #android #ai #deepseek #opensource #программирование\n"
             + "Ссылки: https://cr4code.github.io/Termux-Assistant-AI/ и https://github.com/CR4CODE/Termux-Assistant-AI\n"
+            + "Пиши для широкой аудитории (не для программистов).\n"
+            + "ЗАПРЕЩЕНО: хеши, feat/fix/chore-префиксы, статистика файлов, слова 'коммит', 'commit'.\n"
+            + "Перескажи что изменилось простыми словами: 'Добавили кнопку Релиз — теперь релиз запускается в один тап из приложения'.\n"
+            + "Используй ТОЛЬКО то, что есть в разделе 'Коммиты после последнего релиза'.\n"
             + "Верни ТОЛЬКО текст поста.\n\nФАКТЫ:\n" + releaseFacts;
         webView.evaluateJavascript("window.TermuxClearInput();", null);
         webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(p) + ");", null);
