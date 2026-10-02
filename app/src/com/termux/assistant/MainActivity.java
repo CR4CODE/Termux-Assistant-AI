@@ -728,7 +728,8 @@ public class MainActivity extends Activity {
             "📖  Инструкция",
             "⚙️  Настройки",
             "📢  ВК-постинг",
-            "🚀  Релиз"
+            "🚀  Релиз",
+            "💾  Сохранить контекст"
         };
 
         new AlertDialog.Builder(this)
@@ -741,10 +742,96 @@ public class MainActivity extends Activity {
                     else if (which == 2) i = new Intent(MainActivity.this, SettingsActivity.class);
                     else if (which == 3) { openVkMenu(); return; }
                     else if (which == 4) { releaseDialog(); return; }
+                    else if (which == 5) { saveContext(); return; }
                     if (i != null) startActivity(i);
                 }
             })
             .show();
+    }
+
+    private void saveContext() {
+        new AlertDialog.Builder(this)
+            .setTitle("Сохранить контекст")
+            .setMessage("Отправить в DeepSeek запрос на сводку, скопировать ответ, открыть новый чат и вставить сводку первым сообщением?")
+            .setPositiveButton("Поехали", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    if (statusLabel != null) statusLabel.setText("Готовлю сводку контекста...");
+                    String prompt = "Составь сводку для продолжения работы в НОВОМ чате. "
+                        + "Я вставлю её первым сообщением. "
+                        + "ВАЖНО: ответь ТОЛЬКО сводкой, без рассуждений. "
+                        + "Начни сразу с первой строки: === КОНТЕКСТ ДЛЯ ПРОДОЛЖЕНИЯ ===\\n"
+                        + "Секции: ПРОЕКТ / СТЕК / ПУТИ / ПРАВИЛА / АРХИТЕКТУРА / ЧТО СДЕЛАНО / ЧТО ОСТАЛОСЬ / ТЕКУЩАЯ ЗАДАЧА / ГРАБЛИ.\\n"
+                        + "Последняя строка: === КОНЕЦ ===. Только суть, без воды.";
+                    String escaped = prompt.replace("\\", "\\\\")
+                        .replace("\"", "\\\"")
+                        .replace("'", "\\'")
+                        .replace("\n", "\\n")
+                        .replace("\r", "\\r")
+                        .replace("\t", "\\t");
+                    webView.evaluateJavascript("window.TermuxSend('" + escaped + "');", null);
+                    saveContextWait(0);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+
+    private void saveContextWait(final int attempt) {
+        if (attempt > 60) {
+            if (statusLabel != null) statusLabel.setText("Таймаут ожидания сводки");
+            return;
+        }
+        if (statusLabel != null) statusLabel.setText("Ждём сводку... (" + (attempt * 2) + "с)");
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxReadSummary();",
+                    new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String v) {
+                        String reply = (v == null) ? "" : v;
+                        if (reply.length() >= 2 && reply.startsWith("\"") && reply.endsWith("\"")) {
+                            reply = reply.substring(1, reply.length() - 1);
+                        }
+                        reply = reply.replace("\\n", "\n").replace("\\r", "\r")
+                                     .replace("\\t", "\t").replace("\\\"", "\"")
+                                     .replace("\\\\", "\\");
+                        if (reply.length() < 200 || reply.equals("null")
+                                || reply.indexOf("=== КОНТЕКСТ ДЛЯ ПРОДОЛЖЕНИЯ") < 0) {
+                            saveContextWait(attempt + 1);
+                            return;
+                        }
+                        if (reply.startsWith("err:")) {
+                            if (statusLabel != null) statusLabel.setText("Ошибка чтения: " + reply);
+                            return;
+                        }
+                        final String summary = reply;
+                        android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                            getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("context", summary));
+                        if (statusLabel != null) statusLabel.setText("Сводка скопирована. Открываю новый чат...");
+                        webView.postDelayed(new Runnable() {
+                            @Override public void run() {
+                                webView.evaluateJavascript("window.TermuxNewChat();", null);
+                                webView.postDelayed(new Runnable() {
+                                    @Override public void run() {
+                                        String esc = summary.replace("\\", "\\\\")
+                                                            .replace("\"", "\\\"")
+                                                            .replace("'", "\\'")
+                                                            .replace("\n", "\\n")
+                                                            .replace("\r", "\\r")
+                                                            .replace("\t", "\\t");
+                                        webView.evaluateJavascript("window.TermuxInsertText('" + esc + "');", null);
+                                        if (statusLabel != null) statusLabel.setText("Сводка в новом чате — проверь и отправь");
+                                        android.widget.Toast.makeText(MainActivity.this,
+                                            "Сводка в поле нового чата. Проверь и нажми отправить.",
+                                            android.widget.Toast.LENGTH_LONG).show();
+                                    }
+                                }, 3500);
+                            }
+                        }, 1500);
+                    }
+                });
+            }
+        }, 2000);
     }
 
     private void openVkMenu() {
@@ -1698,6 +1785,57 @@ public class MainActivity extends Activity {
         + "last=t;"
         + "}"
         + "return last||'';"
+        + "};"
+        + "window.TermuxReadSummary = function(){"
+        + "try{"
+        + "var all=document.querySelectorAll('[class*=markdown]');"
+        + "var best=null;"
+        + "for(var i=0;i<all.length;i++){"
+        + "var r=all[i].getBoundingClientRect();"
+        + "if(r.width<50)continue;"
+        + "var t=(all[i].innerText||'').trim();"
+        + "if(t.length<200)continue;"
+        + "if(t.length>20000)continue;"
+        + "if(t.indexOf('=== КОНТЕКСТ ДЛЯ ПРОДОЛЖЕНИЯ')<0)continue;"
+        + "best=t;"
+        + "}"
+        + "return best||'';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxDetectContextError = function(){"
+        + "try{"
+        + "var all=document.querySelectorAll('div,span,p');"
+        + "var markers=['сделайте сообщение короче','сообщение слишком','превышен','лимит контекста','context length','too long','message too long','exceeds the'];"
+        + "var start=all.length-200;if(start<0)start=0;"
+        + "for(var i=all.length-1;i>=start;i--){"
+        + "var t=(all[i].innerText||'').trim();"
+        + "if(t.length<10||t.length>300)continue;"
+        + "var low=t.toLowerCase();"
+        + "for(var m=0;m<markers.length;m++){"
+        + "if(low.indexOf(markers[m])>=0){"
+        + "var r=all[i].getBoundingClientRect();"
+        + "if(r.width>50&&r.height>0&&r.height<200){return t.slice(0,200);}"
+        + "}"
+        + "}"
+        + "}"
+        + "return '';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxNewChat = function(){"
+        + "try{"
+        + "var links=document.querySelectorAll('a,button,[role=button]');"
+        + "for(var i=0;i<links.length;i++){"
+        + "var el=links[i];"
+        + "var lbl=String(el.getAttribute('aria-label')||'')+' '+String(el.title||'');"
+        + "var low=lbl.toLowerCase();"
+        + "if(low.indexOf('new chat')>=0||low.indexOf('новый чат')>=0){"
+        + "el.click();"
+        + "return 'clicked:'+lbl.slice(0,50);"
+        + "}"
+        + "}"
+        + "location.href='https://chat.deepseek.com/';"
+        + "return 'navigated';"
+        + "}catch(e){return 'err:'+e;}"
         + "};";
 
     static TaskItem parseTaskFile(File f) {
