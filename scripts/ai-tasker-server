@@ -24,6 +24,9 @@ ROUTER = os.path.join(HOME, "bin", "ai-router")
 APPLY = os.path.join(HOME, "bin", "apply-patches")
 
 
+VIBE_ROOT = os.path.expanduser("~/vibe")
+
+
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
@@ -281,6 +284,181 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    # ===== VIBE-CODING: управление проектами =====
+
+    def _project_dir(self, name):
+        import re as _re
+        if not _re.match(r"^[a-zA-Z0-9_-]+$", name or ""):
+            raise ValueError("bad project name: %r" % name)
+        return os.path.join(VIBE_ROOT, name)
+
+    def _vibe_backup(self, name, d):
+        """Бэкап проекта перед первой записью в сессии."""
+        import time as _t, shutil as _sh
+        ts = _t.strftime("%Y%m%d-%H%M%S")
+        bk = os.path.join(VIBE_ROOT, ".backups", "%s-%s" % (name, ts))
+        if os.path.exists(bk):
+            return bk
+        os.makedirs(os.path.dirname(bk), exist_ok=True)
+        try:
+            skip = {".git", "build", "__pycache__", ".backups"}
+            def _ign(src, names):
+                return [n for n in names if n in skip]
+            _sh.copytree(d, bk, dirs_exist_ok=True, ignore=_ign)
+            return bk
+        except Exception as e:
+            return "backup-failed: %s" % e
+
+    def project_list(self):
+        try:
+            os.makedirs(VIBE_ROOT, exist_ok=True)
+            out = []
+            for n in sorted(os.listdir(VIBE_ROOT)):
+                if n.startswith("."):
+                    continue
+                pd = os.path.join(VIBE_ROOT, n)
+                if not os.path.isdir(pd):
+                    continue
+                total = 0
+                for dp, _, fs in os.walk(pd):
+                    for f in fs:
+                        try:
+                            total += os.path.getsize(os.path.join(dp, f))
+                        except OSError:
+                            pass
+                out.append("%s  (%d b)" % (n, total))
+            return "\n".join(out) if out else "(нет проектов)", 0
+        except Exception as e:
+            return "err: %s" % e, 1
+
+    def project_tree(self, name):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if not os.path.isdir(d):
+            return "(проект %s не найден)" % name, 1
+        lines = ["=== PROJECT: %s ===" % name]
+        skip = {".git", "build", "__pycache__", ".backups", "gen"}
+        for dp, dns, fns in os.walk(d):
+            dns[:] = sorted(x for x in dns if x not in skip)
+            rel = os.path.relpath(dp, d)
+            rel = "" if rel == "." else rel + "/"
+            for f in sorted(fns):
+                fp = os.path.join(dp, f)
+                try:
+                    sz = os.path.getsize(fp)
+                except OSError:
+                    sz = 0
+                lines.append("%s%s  (%db)" % (rel, f, sz))
+        return "\n".join(lines), 0
+
+    def project_read(self, name, path):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if ".." in path or path.startswith("/"):
+            return "bad path", 1
+        fp = os.path.join(d, path)
+        if not os.path.isfile(fp):
+            return "(файл %s не найден)" % path, 1
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                return f.read(), 0
+        except Exception as e:
+            return "read err: %s" % e, 1
+
+    def project_write(self, name, path, b64):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if ".." in path or path.startswith("/"):
+            return "bad path", 1
+        if not os.path.isdir(d):
+            return "(проект %s не найден)" % name, 1
+        try:
+            import base64 as _b64
+            data = _b64.b64decode(b64).decode("utf-8")
+        except Exception as e:
+            return "b64 decode err: %s" % e, 1
+        fp = os.path.join(d, path)
+        os.makedirs(os.path.dirname(fp), exist_ok=True)
+        # бэкап только один раз на сессию записи
+        bkdir = os.path.join(VIBE_ROOT, ".backups")
+        marker = os.path.join(bkdir, ".%s.sess" % name)
+        if not os.path.exists(marker):
+            bk = self._vibe_backup(name, d)
+            try:
+                os.makedirs(bkdir, exist_ok=True)
+                with open(marker, "w") as mf:
+                    mf.write(bk)
+            except Exception:
+                pass
+        try:
+            with open(fp, "w", encoding="utf-8") as f:
+                f.write(data)
+            return "OK: %s (%d b)" % (path, len(data.encode("utf-8"))), 0
+        except Exception as e:
+            return "write err: %s" % e, 1
+
+    def project_delete(self, name, path):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if ".." in path or path.startswith("/"):
+            return "bad path", 1
+        fp = os.path.join(d, path)
+        if not os.path.isfile(fp):
+            return "(файл %s не найден)" % path, 1
+        try:
+            os.remove(fp)
+            return "OK: deleted %s" % path, 0
+        except Exception as e:
+            return "delete err: %s" % e, 1
+
+    def project_build(self, name):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if not os.path.isdir(d):
+            return "(проект %s не найден)" % name, 1
+        bs = os.path.join(d, "build.sh")
+        if not os.path.isfile(bs):
+            return "(нет build.sh в проекте %s)" % name, 1
+        try:
+            r = subprocess.run(["bash", "build.sh"], cwd=d, capture_output=True, timeout=600)
+            out = r.stdout.decode("utf-8", "replace") + "\n" + r.stderr.decode("utf-8", "replace")
+            # сбрасываем маркер бэкапа сессии
+            marker = os.path.join(VIBE_ROOT, ".backups", ".%s.sess" % name)
+            try: os.remove(marker)
+            except OSError: pass
+            return out.strip() or "(пустой вывод)", r.returncode
+        except subprocess.TimeoutExpired:
+            return "(TIMEOUT 600s)", 124
+        except Exception as e:
+            return "build err: %s" % e, 1
+
+    def project_new(self, name, template):
+        try:
+            d = self._project_dir(name)
+        except ValueError as e:
+            return str(e), 1
+        if os.path.exists(d):
+            return "(проект %s уже существует)" % name, 1
+        tpl = os.path.join(VIBE_ROOT, ".templates", template)
+        if not os.path.isdir(tpl):
+            return "(шаблон %s не найден в ~/vibe/.templates/)" % template, 1
+        try:
+            import shutil as _sh
+            _sh.copytree(tpl, d)
+            return "OK: создан проект %s из шаблона %s" % (name, template), 0
+        except Exception as e:
+            return "copy err: %s" % e, 1
+
     def free_log_append(self, payload):
         """payload: json-строка {"task":..,"status":..,"rc":..,"elapsed":..,"output":..}"""
         try:
@@ -355,6 +533,40 @@ class Handler(BaseHTTPRequestHandler):
                 output, rc = vk_save_config(gid, parts[1])
             else:
                 output, rc = "Неверный формат vk_config", 1
+        elif task.startswith("project_list:"):
+            output, rc = self.project_list()
+        elif task.startswith("project_tree:"):
+            output, rc = self.project_tree(task[13:].strip())
+        elif task.startswith("project_read:"):
+            rest = task[13:]
+            parts = rest.split(":", 1)
+            if len(parts) != 2:
+                output, rc = "Неверный формат project_read:<name>:<path>", 1
+            else:
+                output, rc = self.project_read(parts[0], parts[1])
+        elif task.startswith("project_write:"):
+            rest = task[14:]
+            parts = rest.split(":", 2)
+            if len(parts) != 3:
+                output, rc = "Неверный формат project_write:<name>:<path>:<b64>", 1
+            else:
+                output, rc = self.project_write(parts[0], parts[1], parts[2])
+        elif task.startswith("project_delete:"):
+            rest = task[15:]
+            parts = rest.split(":", 1)
+            if len(parts) != 2:
+                output, rc = "Неверный формат project_delete:<name>:<path>", 1
+            else:
+                output, rc = self.project_delete(parts[0], parts[1])
+        elif task.startswith("project_build:"):
+            output, rc = self.project_build(task[14:].strip())
+        elif task.startswith("project_new:"):
+            rest = task[12:]
+            parts = rest.split(":", 1)
+            if len(parts) != 2:
+                output, rc = "Неверный формат project_new:<name>:<template>", 1
+            else:
+                output, rc = self.project_new(parts[0], parts[1])
         elif task.startswith("log:"):
             output, rc = self.free_log_append(task[4:])
         elif task.startswith("auto:"):
