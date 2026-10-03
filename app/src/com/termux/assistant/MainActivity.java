@@ -91,6 +91,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        ensureAllFilesAccess();
+
         webView = findViewById(R.id.ds_webview);
         progressBar = findViewById(R.id.ds_progress);
         statusLabel = findViewById(R.id.ds_status);
@@ -126,7 +128,7 @@ public class MainActivity extends Activity {
         Button clearBtn = findViewById(R.id.btn_ds_clear);
         if (clearBtn != null) {
             clearBtn.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { clearInput(); }
+                @Override public void onClick(View v) { copyFirstBash(); }
             });
         }
 
@@ -208,6 +210,13 @@ public class MainActivity extends Activity {
                 v.postDelayed(new Runnable() { @Override public void run() {
                     v.evaluateJavascript("window.__termuxApplyTheme&&window.__termuxApplyTheme()", null);
                 }}, 2000);
+                // Скрытие размышлений, если включено в меню
+                boolean _hide = getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean("hide_thinking", false);
+                if (_hide) {
+                    v.postDelayed(new Runnable() { @Override public void run() {
+                        v.evaluateJavascript("window.__termuxHideThinkingLoop&&window.__termuxHideThinkingLoop()", null);
+                    }}, 2500);
+                }
                 // startContextPoller(); // отключено: ложные срабатывания
             }
         });
@@ -488,6 +497,45 @@ public class MainActivity extends Activity {
         void onResult(String status, String output, int rc, double elapsed);
     }
 
+    private void copyFirstBash() {
+        webView.evaluateJavascript("window.TermuxCopyFirstBash?window.TermuxCopyFirstBash():'no_fn'",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String val) {
+                String raw = unescapeJs(val);
+                if (raw == null || raw.isEmpty() || raw.startsWith("no_") || raw.startsWith("err:")) {
+                    toast("Bash-блок не найден: " + raw);
+                    return;
+                }
+                String code = raw;
+                if (code.startsWith("```")) {
+                    int nl = code.indexOf('\n');
+                    if (nl > 0) code = code.substring(nl + 1);
+                    if (code.endsWith("```")) code = code.substring(0, code.length() - 3);
+                }
+                android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("bash", code));
+                String esc = org.json.JSONObject.quote(code);
+                webView.evaluateJavascript("window.TermuxClearInput();", null);
+                webView.evaluateJavascript("window.TermuxInsertText(" + esc + ");", null);
+                toast("Bash в поле и в буфере — жми \uD83D\uDE80 Free");
+            }
+        });
+    }
+
+    private void ensureAllFilesAccess() {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                if (android.os.Environment.isExternalStorageManager()) return;
+                android.content.Intent i = new android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                i.setData(android.net.Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("Main", "all files access request failed: " + e);
+        }
+    }
+
     private void httpTask(final String task, final HttpCallback cb) {
         new Thread(new Runnable() {
             @Override public void run() {
@@ -726,13 +774,16 @@ public class MainActivity extends Activity {
     }
 
     private void openMenu() {
+        boolean hideThinking = getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean("hide_thinking", false);
+        String thinkingLabel = (hideThinking ? "✅  " : "⬜  ") + "Скрывать размышления";
         final String[] items = new String[]{
             "📋  История задач",
             "📖  Инструкция",
             "⚙️  Настройки",
             "📢  ВК-постинг",
             "🚀  Релиз",
-            "💾  Сохранить контекст"
+            "💾  Сохранить контекст",
+            thinkingLabel
         };
 
         new AlertDialog.Builder(this)
@@ -746,10 +797,23 @@ public class MainActivity extends Activity {
                     else if (which == 3) { openVkMenu(); return; }
                     else if (which == 4) { releaseDialog(); return; }
                     else if (which == 5) { saveContext(); return; }
+                    else if (which == 6) { toggleHideThinking(); return; }
                     if (i != null) startActivity(i);
                 }
             })
             .show();
+    }
+
+    private void toggleHideThinking() {
+        boolean cur = getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean("hide_thinking", false);
+        boolean next = !cur;
+        getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putBoolean("hide_thinking", next).apply();
+        toast(next ? "Размышления скрыты" : "Размышления показаны");
+        if (next) {
+            webView.evaluateJavascript("window.__termuxHideThinkingLoop&&window.__termuxHideThinkingLoop()", null);
+        } else {
+            webView.evaluateJavascript("window.__termuxShowThinking&&window.__termuxShowThinking()", null);
+        }
     }
 
     private void saveContext() {
@@ -2312,6 +2376,76 @@ public class MainActivity extends Activity {
         + "location.href='https://chat.deepseek.com/';"
         + "return 'navigated';"
         + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.TermuxCopyFirstBash = function(){"
+        + "try{"
+        + "var blocks=document.querySelectorAll('[class*=markdown]');"
+        + "var last=null;"
+        + "for(var i=0;i<blocks.length;i++){"
+        + "var r=blocks[i].getBoundingClientRect();"
+        + "if(r.width<100)continue;"
+        + "last=blocks[i];"
+        + "}"
+        + "if(!last)return 'no_markdown';"
+        + "var cbs=last.querySelectorAll('.md-code-block, [class*=md-code-block]');"
+        + "for(var j=0;j<cbs.length;j++){"
+        + "var cb=cbs[j];"
+        + "var banner=cb.querySelector('[class*=banner]');"
+        + "var lang='';"
+        + "if(banner){"
+        + "var first=banner.firstElementChild;"
+        + "if(first)lang=(first.textContent||'').trim().toLowerCase();"
+        + "}"
+        + "if(lang.indexOf('bash')<0 && lang.indexOf('shell')<0 && lang.indexOf('sh')!==0)continue;"
+        + "var pre=cb.querySelector('pre');"
+        + "if(!pre)continue;"
+        + "return pre.textContent||pre.innerText||'';"
+        + "}"
+        + "return 'no_bash';"
+        + "}catch(e){return 'err:'+e;}"
+                + "};"
+        + "window.TermuxHideThinking = function(){"
+        + "try{"
+        + "var out=0;"
+        + "var all=document.querySelectorAll('div');"
+        + "for(var k=0;k<all.length;k++){"
+        + "var e=all[k];"
+        + "var t=(e.textContent||'').trim();"
+        + "if(!(t.indexOf('Thought for')===0 || t.indexOf('Размышлял')===0 || t.indexOf('Reasoning')===0))continue;"
+        + "if(t.length>50)continue;"
+        + "var par=e.parentElement;"
+        + "if(!par)continue;"
+        + "if(par.children.length<2)continue;"
+        + "par.style.display='none';"
+        + "par.setAttribute('data-tx-hidden','1');"
+        + "out++;"
+        + "}"
+        + "return 'hidden:'+out;"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.__termuxHideThinkingLoop=function(){"
+        + "if(window.__txObserver)return 'already';"
+        + "try{"
+        + "var cb=function(){"
+        + "if(window.__txPending)return;"
+        + "window.__txPending=true;"
+        + "Promise.resolve().then(function(){"
+        + "window.__txPending=false;"
+        + "try{window.TermuxHideThinking();}catch(e){}"
+        + "});"
+        + "};"
+        + "window.__txObserver=new MutationObserver(cb);"
+        + "window.__txObserver.observe(document.body,{childList:true,subtree:true,characterData:true});"
+        + "window.TermuxHideThinking();"
+        + "return 'observer_started';"
+        + "}catch(e){return 'err:'+e;}"
+        + "};"
+        + "window.__termuxShowThinking=function(){"
+        + "if(window.__txHideInt){clearInterval(window.__txHideInt);window.__txHideInt=null;}"
+        + "if(window.__txObserver){try{window.__txObserver.disconnect();}catch(x){}window.__txObserver=null;}"
+        + "var all=document.querySelectorAll('[data-tx-hidden]');"
+        + "for(var i=0;i<all.length;i++){all[i].style.display='';all[i].removeAttribute('data-tx-hidden');}"
+        + "return 'shown:'+all.length;"
         + "};";
 
     static TaskItem parseTaskFile(File f) {

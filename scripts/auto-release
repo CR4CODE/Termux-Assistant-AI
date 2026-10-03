@@ -138,6 +138,12 @@ def sync_files():
         os.path.expanduser("~/bin/vk-post"):          os.path.join(REPO, "scripts", "vk-post"),
         os.path.expanduser("~/bin/apply-patches"):    os.path.join(REPO, "scripts", "apply-patches"),
         os.path.expanduser("~/bin/export-source"):    os.path.join(REPO, "scripts", "export-source"),
+        os.path.expanduser("~/bin/aib-auto"):         os.path.join(REPO, "scripts", "aib-auto"),
+        os.path.expanduser("~/bin/ai-dev"):           os.path.join(REPO, "scripts", "ai-dev"),
+        os.path.expanduser("~/bin/aib"):              os.path.join(REPO, "scripts", "aib"),
+        os.path.expanduser("~/bin/aib-watchdog"):     os.path.join(REPO, "scripts", "aib-watchdog"),
+        os.path.expanduser("~/bin/aictl"):            os.path.join(REPO, "scripts", "aictl"),
+        os.path.expanduser("~/bin/aictl-up"):         os.path.join(REPO, "scripts", "aictl-up"),
     }
     for src, dst in scr_map.items():
         if os.path.exists(src):

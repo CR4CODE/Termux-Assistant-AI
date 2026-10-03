@@ -119,7 +119,7 @@
             android:layout_width="40dp"
             android:layout_height="46dp"
             android:layout_marginStart="3dp"
-            android:text="🗑"
+            android:text="📋"
             android:textSize="18sp"
             style="@style/PanelButton.Secondary"/>
     </LinearLayout>
