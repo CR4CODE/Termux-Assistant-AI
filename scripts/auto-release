@@ -265,15 +265,34 @@ def update_readme_whatsnew(version, notes_text):
     log(f"README.md: переписан блок «Что нового в v{version}» ({len(bullets)} пунктов)")
 
 
+def _current_landing_version():
+    """Возвращает версию, реально указанную в index.html (vX.Y), или None."""
+    import re as _re
+    p = os.path.join(REPO, "index.html")
+    try:
+        with open(p, encoding="utf-8") as f:
+            src = f.read()
+    except Exception:
+        return None
+    m = _re.search(r"Скачать APK v(\d+\.\d+(?:\.\d+)?)", src)
+    if m:
+        return m.group(1)
+    m = _re.search(r"\bv(\d+\.\d+)\b", src)
+    return m.group(1) if m else None
+
+
 def bump_landing_and_readme(prev, version):
-    for name in ("index.html", "README.md"):
+    # Для index.html используем реально указанную там версию (а не prev из build.sh),
+    # иначе легко пропустить отставший лендинг.
+    landing_prev = _current_landing_version() or prev
+    for name, pv in (("index.html", landing_prev), ("README.md", prev)):
         path = os.path.join(REPO, name)
         if not os.path.exists(path):
             continue
         with open(path, "r", encoding="utf-8") as f:
             src = f.read()
         # Заменяем все "vX.Y" -> "vX.Z" и "APK vX.Y" -> "APK vX.Z"
-        src = re.sub(rf"\bv{re.escape(prev)}\b", f"v{version}", src)
+        src = re.sub(rf"\bv{re.escape(pv)}\b", f"v{version}", src)
         # "Что нового в vX.Y" — обработается выше
         with open(path, "w", encoding="utf-8") as f:
             f.write(src)
