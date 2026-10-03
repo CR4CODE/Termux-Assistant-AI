@@ -130,6 +130,20 @@ def sync_files():
         n = copy_tree(os.path.join(WORK, name), os.path.join(REPO, "app", name))
         log(f"sync: app/{name}/ ({n} файлов)")
 
+    # Скрипты из ~/bin -> scripts/
+    scr_map = {
+        os.path.expanduser("~/bin/ai-tasker-server"): os.path.join(REPO, "scripts", "ai-tasker-server"),
+        os.path.expanduser("~/bin/ai-router"):        os.path.join(REPO, "scripts", "ai-router"),
+        os.path.expanduser("~/bin/auto-release"):     os.path.join(REPO, "scripts", "auto-release"),
+        os.path.expanduser("~/bin/vk-post"):          os.path.join(REPO, "scripts", "vk-post"),
+        os.path.expanduser("~/bin/apply-patches"):    os.path.join(REPO, "scripts", "apply-patches"),
+        os.path.expanduser("~/bin/export-source"):    os.path.join(REPO, "scripts", "export-source"),
+    }
+    for src, dst in scr_map.items():
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+            log(f"sync: scripts/{os.path.basename(dst)}")
+
 
 def prepend_changelog(version, notes_text):
     path = os.path.join(REPO, "CHANGELOG.md")
