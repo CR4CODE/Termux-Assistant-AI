@@ -101,7 +101,7 @@
             android:layout_height="46dp"
             android:layout_weight="1"
             android:layout_marginStart="3dp"
-            android:text="🛠 Dev"
+            android:text="🆕 Vibe"
             android:textSize="12sp"
             style="@style/PanelButton.Secondary"/>
 

@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
         Button devBtn = findViewById(R.id.btn_ds_dev);
         if (devBtn != null) {
             devBtn.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { startDevDialog(); }
+                @Override public void onClick(View v) { vibeRun(); }
             });
         }
 
@@ -1583,6 +1583,354 @@ public class MainActivity extends Activity {
             }
         }, 700);
     }
+
+    // ================= VIBE-CODING =================
+    // Создание/развитие проектов в ~/vibe/ через DeepSeek.
+    // Агент сам решает, какие файлы создать/изменить.
+
+    private String currentVibeProject = null;
+    private String currentVibeTask = null;
+    private int vibeIteration = 0;
+    private static final int VIBE_MAX_ITER = 5;
+    private long vibeStartedAt = 0;
+
+    private void startVibeDialog() {
+        if (statusLabel != null) statusLabel.setText("Загружаю проекты...");
+        httpTask("project_list:", new HttpCallback() {
+            @Override public void onResult(String status, String output, int rc, double elapsed) {
+                if (output == null) output = "";
+                final String listOut = output.trim();
+                final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
+                if (!listOut.startsWith("(нет")) {
+                    for (String line : listOut.split("\n")) {
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        int sp = line.indexOf("  ");
+                        String n = (sp > 0) ? line.substring(0, sp) : line;
+                        names.add(n);
+                    }
+                }
+                names.add("➕ Создать новый проект");
+
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("🆕 Vibe-проект")
+                    .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                        @Override public void onClick(DialogInterface d, int which) {
+                            String picked = names.get(which);
+                            if (picked.startsWith("➕")) {
+                                vibeCreateDialog();
+                            } else {
+                                currentVibeProject = picked;
+                                toast("Проект: " + picked);
+                                if (statusLabel != null) statusLabel.setText("Проект: " + picked + " — введи задачу и жми 🆕 Vibe");
+                                setActiveMode("none");
+                            }
+                        }
+                    })
+                    .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                        @Override public void onClick(DialogInterface d, int w) { setActiveMode("none"); }
+                    })
+                    .show();
+            }
+        });
+    }
+
+    private void vibeCreateDialog() {
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setHint("имя проекта (a-z, 0-9, _)");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        new AlertDialog.Builder(this)
+            .setTitle("Новый проект")
+            .setMessage("Будет создан в ~/vibe/<имя> из шаблона android-java")
+            .setView(et)
+            .setPositiveButton("Создать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    String name = et.getText().toString().trim();
+                    if (name.isEmpty()) { toast("Пустое имя"); setActiveMode("none"); return; }
+                    httpTask("project_new:" + name + ":android-java", new HttpCallback() {
+                        @Override public void onResult(String status, String output, int rc, double elapsed) {
+                            if (rc == 0) {
+                                currentVibeProject = name;
+                                toast("Создан: " + name);
+                                if (statusLabel != null) statusLabel.setText("Проект: " + name + " — введи задачу и жми 🆕 Vibe");
+                            } else {
+                                toast("Ошибка: " + output);
+                            }
+                            setActiveMode("none");
+                        }
+                    });
+                }
+            })
+            .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { setActiveMode("none"); }
+            })
+            .show();
+    }
+
+    private void vibeRun() {
+        if (currentVibeProject == null || currentVibeProject.isEmpty()) {
+            startVibeDialog();
+            return;
+        }
+        webView.evaluateJavascript("window.TermuxGetInput();",
+            new android.webkit.ValueCallback<String>() {
+            @Override public void onReceiveValue(String value) {
+                String text = unescapeJs(value);
+                if (text == null || text.trim().isEmpty()) {
+                    text = readClipboard();
+                }
+                if (text == null || text.trim().isEmpty()) {
+                    toast("Введи задачу в поле");
+                    return;
+                }
+                currentVibeTask = text.trim();
+                vibeIteration = 0;
+                vibeStartedAt = System.currentTimeMillis();
+                setActiveMode("dev");
+                vibeStep();
+            }
+        });
+    }
+
+    private void vibeStep() {
+        if (vibeIteration >= VIBE_MAX_ITER) {
+            if (statusLabel != null) statusLabel.setText("Vibe: лимит итераций (" + VIBE_MAX_ITER + ")");
+            setActiveMode("none");
+            return;
+        }
+        if (System.currentTimeMillis() - vibeStartedAt > 10 * 60 * 1000) {
+            if (statusLabel != null) statusLabel.setText("Vibe: таймаут 10 мин");
+            setActiveMode("none");
+            return;
+        }
+        vibeIteration++;
+        if (statusLabel != null) statusLabel.setText("Vibe: итерация " + vibeIteration + " — читаю проект...");
+
+        httpTask("project_tree:" + currentVibeProject, new HttpCallback() {
+            @Override public void onResult(String status, String tree, int rc, double elapsed) {
+                if (rc != 0) {
+                    toast("Не могу прочитать проект: " + tree);
+                    setActiveMode("none");
+                    return;
+                }
+                String prompt = vibeBuildPrompt(currentVibeProject, tree, currentVibeTask, vibeIteration);
+                webView.evaluateJavascript("window.TermuxClearInput();", null);
+                webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(prompt) + ");", null);
+                webView.postDelayed(new Runnable() {
+                    @Override public void run() {
+                        webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+                    }
+                }, 700);
+                if (statusLabel != null) statusLabel.setText("Vibe " + vibeIteration + ": жду ответ...");
+                vibeWaitReply(0);
+            }
+        });
+    }
+
+    private String vibeBuildPrompt(String project, String tree, String task, int iteration) {
+        StringBuilder b = new StringBuilder();
+        b.append("Ты — автономный программист. Работаешь над Android-проектом на Java.\n\n");
+        b.append("СТРУКТУРА ПРОЕКТА (папка ~/vibe/").append(project).append("/):\n");
+        b.append(tree).append("\n\n");
+        b.append("СБОРКА: bash build.sh (aapt2 + javac + d8 + apksigner, в Termux)\n\n");
+        if (iteration > 1) {
+            b.append("ЭТО ИТЕРАЦИЯ #").append(iteration).append(" — предыдущая сборка упала.\n");
+            b.append("Исправь ошибки и верни ТОЛЬКО те файлы, которые нужно изменить.\n\n");
+        }
+        b.append("ЗАДАЧА:\n").append(task).append("\n\n");
+        b.append("ФОРМАТ ОТВЕТА (строго!):\n");
+        b.append("- Верни ТОЛЬКО файлы, которые нужно создать или изменить.\n");
+        b.append("- Каждый файл — блоком:\n\n");
+        b.append("=== FILE: <путь относительно корня проекта> ===\n");
+        b.append("```java\n<полное содержимое файла>\n```\n\n");
+        b.append("- Если файл нужно удалить: === DELETE: <путь> ===\n\n");
+        b.append("ПРАВИЛА:\n");
+        b.append("- Не объясняй. Только блоки.\n");
+        b.append("- Возвращай ПОЛНОЕ содержимое каждого указанного файла (не diff).\n");
+        b.append("- Пиши компилируемый Java 8 (aapt2/javac/d8 из Termux).\n");
+        b.append("- R-класс генерируется aapt2 в build/gen — не создавай его вручную.\n");
+        b.append("- Не создавай .bak, patch.py и прочий мусор в проекте.\n");
+        b.append("- package в Java-файлах должен соответствовать пути: src/a/b/C.java -> package a.b;\n");
+        return b.toString();
+    }
+
+    private String vibeLastReply = "";
+    private int vibeStable = 0;
+
+    private void vibeWaitReply(final int attempt) {
+        if (attempt > 60) {
+            if (statusLabel != null) statusLabel.setText("Vibe: таймаут ответа");
+            setActiveMode("none");
+            return;
+        }
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxReadPost();",
+                    new android.webkit.ValueCallback<String>() {
+                    @Override public void onReceiveValue(String value) {
+                        String reply = unescapeJs(value);
+                        if (reply == null) reply = "";
+                        reply = reply.trim();
+                        if (reply.length() < 40) { vibeWaitReply(attempt + 1); return; }
+                        if (reply.equals(vibeLastReply)) vibeStable++;
+                        else { vibeStable = 0; vibeLastReply = reply; }
+                        if (vibeStable >= 3 && attempt >= 4) {
+                            vibeHandleReply(reply);
+                            return;
+                        }
+                        vibeWaitReply(attempt + 1);
+                    }
+                });
+            }
+        }, 3000);
+    }
+
+    private void vibeHandleReply(String reply) {
+        vibeLastReply = "";
+        vibeStable = 0;
+        java.util.List<VibeOp> ops = vibeParseBlocks(reply);
+        if (ops.isEmpty()) {
+            if (statusLabel != null) statusLabel.setText("Vibe: не распарсил ответ");
+            new AlertDialog.Builder(MainActivity.this)
+                .setTitle("Не распарсил ответ агента")
+                .setMessage(reply.length() > 2000 ? reply.substring(0, 2000) + "..." : reply)
+                .setPositiveButton("OK", null).show();
+            setActiveMode("none");
+            return;
+        }
+        vibeShowPreview(ops);
+    }
+
+    private static class VibeOp {
+        String kind;   // "write" | "delete"
+        String path;
+        String content;
+    }
+
+    private java.util.List<VibeOp> vibeParseBlocks(String reply) {
+        java.util.List<VibeOp> ops = new java.util.ArrayList<VibeOp>();
+        java.util.regex.Pattern pFile = java.util.regex.Pattern.compile(
+            "===\\s*FILE:\\s*(\\S+?)\\s*===\\s*\\n```[a-zA-Z]*\\n([\\s\\S]*?)\\n```",
+            java.util.regex.Pattern.MULTILINE);
+        java.util.regex.Matcher m = pFile.matcher(reply);
+        while (m.find()) {
+            VibeOp op = new VibeOp();
+            op.kind = "write";
+            op.path = m.group(1).trim();
+            op.content = m.group(2);
+            ops.add(op);
+        }
+        java.util.regex.Pattern pDel = java.util.regex.Pattern.compile(
+            "===\\s*DELETE:\\s*(\\S+?)\\s*===",
+            java.util.regex.Pattern.MULTILINE);
+        java.util.regex.Matcher md = pDel.matcher(reply);
+        while (md.find()) {
+            VibeOp op = new VibeOp();
+            op.kind = "delete";
+            op.path = md.group(1).trim();
+            ops.add(op);
+        }
+        return ops;
+    }
+
+    private void vibeShowPreview(final java.util.List<VibeOp> ops) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Агент вернул ").append(ops.size()).append(" операций:\n\n");
+        for (VibeOp op : ops) {
+            if ("write".equals(op.kind)) {
+                int sz = op.content == null ? 0 : op.content.getBytes().length;
+                sb.append("✏️ ").append(op.path).append("  (").append(sz).append(" b)\n");
+            } else {
+                sb.append("🗑 ").append(op.path).append("\n");
+            }
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Применить?")
+            .setMessage(sb.toString())
+            .setPositiveButton("Применить и собрать", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) {
+                    vibeApplyAndBuild(ops, 0);
+                }
+            })
+            .setNegativeButton("Отмена", new DialogInterface.OnClickListener() {
+                @Override public void onClick(DialogInterface d, int w) { setActiveMode("none"); }
+            })
+            .show();
+    }
+
+    private void vibeApplyAndBuild(final java.util.List<VibeOp> ops, final int idx) {
+        if (idx >= ops.size()) {
+            if (statusLabel != null) statusLabel.setText("Vibe: собираю APK...");
+            httpTask("project_build:" + currentVibeProject, new HttpCallback() {
+                @Override public void onResult(String status, String output, int rc, double elapsed) {
+                    if (rc == 0) {
+                        String apk = "";
+                        int ai = output.lastIndexOf("APK:");
+                        if (ai >= 0) {
+                            int nl = output.indexOf('\n', ai);
+                            apk = (nl > 0 ? output.substring(ai + 4, nl) : output.substring(ai + 4)).trim();
+                        }
+                        if (statusLabel != null) statusLabel.setText("✅ Готово: " + apk);
+                        new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("✅ Собрано")
+                            .setMessage("APK: " + apk)
+                            .setPositiveButton("OK", null).show();
+                        setActiveMode("none");
+                    } else {
+                        if (statusLabel != null) statusLabel.setText("Vibe: сборка упала, отправляю агенту...");
+                        vibeSendErrorToChat(output);
+                    }
+                }
+            });
+            return;
+        }
+
+        VibeOp op = ops.get(idx);
+        if ("delete".equals(op.kind)) {
+            httpTask("project_delete:" + currentVibeProject + ":" + op.path, new HttpCallback() {
+                @Override public void onResult(String status, String output, int rc, double el) {
+                    vibeApplyAndBuild(ops, idx + 1);
+                }
+            });
+        } else {
+            String b64;
+            try {
+                b64 = android.util.Base64.encodeToString(
+                    op.content.getBytes("UTF-8"), android.util.Base64.NO_WRAP);
+            } catch (Exception e) {
+                b64 = "";
+            }
+            httpTask("project_write:" + currentVibeProject + ":" + op.path + ":" + b64,
+                new HttpCallback() {
+                @Override public void onResult(String status, String output, int rc, double el) {
+                    vibeApplyAndBuild(ops, idx + 1);
+                }
+            });
+        }
+    }
+
+    private void vibeSendErrorToChat(final String buildOutput) {
+        String body = buildOutput == null ? "" : buildOutput;
+        if (body.length() > 3000) body = body.substring(0, 3000) + "\n...[обрезано]";
+        // Обрезаем вводную часть (=== шаги ===) — оставляем ошибки
+        int errPos = body.indexOf("error:");
+        if (errPos > 200) body = body.substring(Math.max(0, errPos - 300));
+        String msg = "Сборка упала.\n\nОшибка:\n```\n" + body + "\n```\n\n"
+            + "Исправь. Верни файлы в том же формате (=== FILE: ... ===).";
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        webView.evaluateJavascript("window.TermuxInsertText(" + org.json.JSONObject.quote(msg) + ");", null);
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+            }
+        }, 700);
+        // Через 3 сек — следующая итерация
+        webView.postDelayed(new Runnable() {
+            @Override public void run() { vibeStep(); }
+        }, 3000);
+    }
+
+    // ============ /VIBE-CODING ============
 
     private String readResultFromJson(File f) {
         try {
