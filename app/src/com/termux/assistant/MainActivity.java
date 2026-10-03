@@ -1470,9 +1470,19 @@ public class MainActivity extends Activity {
                 handler.removeCallbacks(cycleRunnable);
                 cycleRunnable = null;
 
+                logFreeResult(taskText, status, rc, elapsed, output);
+
                 if ("error".equals(status) || output == null || output.isEmpty()) {
                     String err = (output == null || output.isEmpty()) ? "Пусто (rc=" + rc + ")" : output;
-                    if (statusLabel != null) statusLabel.setText("\u2717 " + err);
+                    if (statusLabel != null) statusLabel.setText("\u2717 \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u043B \u0432 \u0447\u0430\u0442 \u0434\u043B\u044F \u0440\u0430\u0437\u0431\u043E\u0440\u0430");
+                    sendErrorToChat(taskText, status, rc, err);
+                    setActiveMode("none");
+                    return;
+                }
+
+                if (isErrorResult(status, rc, output)) {
+                    if (statusLabel != null) statusLabel.setText("\u2717 \u041E\u0448\u0438\u0431\u043A\u0430 \u2014 \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u043B \u0432 \u0447\u0430\u0442");
+                    sendErrorToChat(taskText, status, rc, output);
                     setActiveMode("none");
                     return;
                 }
@@ -1503,6 +1513,75 @@ public class MainActivity extends Activity {
                 }, 2000);
             }
         });
+    }
+
+    private static final String FREE_LOG_DIR = "/sdcard/ai-tasker/logs";
+    private static final String FREE_LOG_FILE = FREE_LOG_DIR + "/free.log";
+
+    private void logFreeResult(final String task, final String status, final int rc, final double elapsed, final String output) {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("task", task);
+            o.put("status", status);
+            o.put("rc", rc);
+            o.put("elapsed", elapsed);
+            o.put("output", output == null ? "(null)" : output);
+            final String payload = o.toString();
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    java.net.HttpURLConnection c = null;
+                    try {
+                        java.net.URL u = new java.net.URL("http://127.0.0.1:8767/task");
+                        c = (java.net.HttpURLConnection) u.openConnection();
+                        c.setRequestMethod("POST");
+                        c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                        c.setDoOutput(true);
+                        c.setConnectTimeout(3000);
+                        c.setReadTimeout(5000);
+                        org.json.JSONObject req = new org.json.JSONObject();
+                        req.put("task", "log:" + payload);
+                        byte[] b = req.toString().getBytes("UTF-8");
+                        c.setFixedLengthStreamingMode(b.length);
+                        java.io.OutputStream os = c.getOutputStream();
+                        os.write(b);
+                        os.close();
+                        c.getResponseCode();
+                    } catch (Exception e) {
+                        android.util.Log.w("FreeLog", "http log fail: " + e.getMessage());
+                    } finally {
+                        if (c != null) c.disconnect();
+                    }
+                }
+            }).start();
+        } catch (Exception e) {
+            android.util.Log.w("FreeLog", "log pack fail: " + e.getMessage());
+        }
+    }
+
+    private boolean isErrorResult(final String status, final int rc, final String output) {
+        // Только явные признаки: сервер вернул error, либо ненулевой код возврата.
+        // Подстрочный анализ даёт ложные срабатывания (метод находит сам себя в тексте).
+        if ("error".equals(status)) return true;
+        if (rc > 0) return true;
+        return false;
+    }
+
+    private void sendErrorToChat(final String task, final String status, final int rc, final String output) {
+        String body = output == null ? "(null)" : output;
+        if (body.length() > 3000) body = body.substring(0, 3000) + "\n...[обрезано]";
+        String msg = "\u26A0\uFE0F Free-задача упала.\n"
+            + "Задача: " + task + "\n"
+            + "status=" + status + " rc=" + rc + "\n"
+            + "Вывод:\n```\n" + body + "\n```\n"
+            + "Пожалуйста, разбери ошибку и предложи исправление.";
+        final String escaped = org.json.JSONObject.quote(msg);
+        webView.evaluateJavascript("window.TermuxClearInput();", null);
+        webView.evaluateJavascript("window.TermuxInsertText(" + escaped + ");", null);
+        webView.postDelayed(new Runnable() {
+            @Override public void run() {
+                webView.evaluateJavascript("window.TermuxFindAndClick();", null);
+            }
+        }, 700);
     }
 
     private String readResultFromJson(File f) {

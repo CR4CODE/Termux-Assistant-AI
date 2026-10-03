@@ -281,6 +281,26 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    def free_log_append(self, payload):
+        """payload: json-строка {"task":..,"status":..,"rc":..,"elapsed":..,"output":..}"""
+        try:
+            import json as _j, time as _t
+            d = _j.loads(payload)
+            ts = _t.strftime("%Y-%m-%d %H:%M:%S")
+            path = os.path.expanduser("~/ai-tasker-free.log")
+            body = d.get("output") or ""
+            if len(body) > 20000:
+                body = body[:20000] + "\n...[truncated]"
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n===== %s =====\n" % ts)
+                f.write("TASK: %s\n" % (d.get("task") or ""))
+                f.write("STATUS: %s | rc=%s | elapsed=%ss\n" % (
+                    d.get("status"), d.get("rc"), d.get("elapsed")))
+                f.write("OUTPUT:\n%s\n" % body)
+            return ("logged to %s" % path), 0
+        except Exception as e:
+            return ("free_log_append err: %s" % e), 1
+
     def do_POST(self):
         if self.path != "/task":
             self._send(404, {"error": "not found"})
@@ -335,6 +355,8 @@ class Handler(BaseHTTPRequestHandler):
                 output, rc = vk_save_config(gid, parts[1])
             else:
                 output, rc = "Неверный формат vk_config", 1
+        elif task.startswith("log:"):
+            output, rc = self.free_log_append(task[4:])
         elif task.startswith("auto:"):
             output, rc = run_router(task[5:].strip())
         else:
