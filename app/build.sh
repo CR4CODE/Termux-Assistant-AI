@@ -12,7 +12,7 @@ aapt2 link -o build/base.apk -I lib/android.jar \
   --manifest AndroidManifest.xml build/res.zip \
   --java build/gen \
   --min-sdk-version 24 --target-sdk-version 34 \
-  --version-code 20700 --version-name 2.7 2>&1 | grep -vE "^$" || true
+  --version-code 20800 --version-name 2.8 2>&1 | grep -vE "^$" || true
 
 echo "=== [3/6] javac ==="
 rm -rf build/classes && mkdir -p build/classes
