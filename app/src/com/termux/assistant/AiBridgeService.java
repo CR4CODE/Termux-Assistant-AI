@@ -43,7 +43,7 @@ public class AiBridgeService extends AccessibilityService {
     private static final String VERSION = "2.3";
     private static final SimpleDateFormat SDF = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
     private static final int MAX_DUMP_LINES = 4000;
-    private static final int MAX_LINE_LEN  = 4000;
+    private static final int MAX_LINE_LEN  = 50000;
 
     private long lastSendMs = 0;
     private String lastPkg = "";
@@ -601,17 +601,33 @@ public class AiBridgeService extends AccessibilityService {
     }
 
     private AccessibilityNodeInfo findFirstEditText(AccessibilityNodeInfo node) {
-        if (node == null) return null;
+        // Ищем САМЫЙ НИЖНИЙ широкий EditText — это поле ввода, а не блок вывода кода.
         try {
-            String cls = String.valueOf(node.getClassName());
-            if (cls != null && cls.contains("EditText")) return node;
-            int n = node.getChildCount();
-            for (int i = 0; i < n; i++) {
-                AccessibilityNodeInfo r = findFirstEditText(node.getChild(i));
-                if (r != null) return r;
+            java.util.List<AccessibilityNodeInfo> all = new java.util.ArrayList<AccessibilityNodeInfo>();
+            collectEditTexts(node, all);
+            AccessibilityNodeInfo best = null;
+            int bestY = -1;
+            for (AccessibilityNodeInfo n : all) {
+                Rect r = new Rect();
+                n.getBoundsInScreen(r);
+                if (r.width() < 400) continue;
+                if (r.top > bestY) { bestY = r.top; best = n; }
             }
+            if (best != null) return best;
+            // fallback: любой EditText
+            return all.isEmpty() ? null : all.get(all.size() - 1);
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    private void collectEditTexts(AccessibilityNodeInfo node, java.util.List<AccessibilityNodeInfo> out) {
+        if (node == null) return;
+        try {
+            String cls = String.valueOf(node.getClassName());
+            if (cls != null && cls.contains("EditText")) out.add(node);
+            int n = node.getChildCount();
+            for (int i = 0; i < n; i++) collectEditTexts(node.getChild(i), out);
+        } catch (Throwable ignored) {}
     }
 
     private void setTextOnEditText(String text) {

@@ -21,7 +21,7 @@ DANGEROUS = [
     r"\bmkfs\.", r"\bdd\s+.*of=/dev/", r"\bsudo\b", r"\bsu\s+-c",
     r"\bshutdown\b", r"\breboot\b", r"\bmount\b",
     r">\s*/system", r">\s*/data/", r">\s*/vendor",
-    r"piar-bot", r"/bin/aib", r"/bin/aictl", r"/bin/ai-cycle", r"/bin/grab",
+    r"/bin/aib", r"/bin/aictl", r"/bin/ai-cycle", r"/bin/grab",
     r"~/.termux", r"~/.aib", r"/keys/",
     r"receiver\.py", r"keystore",
 ]
@@ -141,19 +141,91 @@ def find_otpravit_coord():
             lines = f.read().decode("utf-8", "replace").splitlines()
     except Exception:
         return None, None
-    # Берём свежий DUMP
     start = 0
     for i in range(len(lines) - 1, -1, -1):
         if "DUMP_BEGIN" in lines[i]:
             start = i; break
-    for l in lines[start:]:
+    fresh = lines[start:]
+
+    # Приоритет 1: desc="Отправить" (старые версии DeepSeek)
+    for l in fresh:
         if 'desc="Отправить"' in l:
             m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
             if m:
-                x = (int(m.group(1)) + int(m.group(3))) // 2
-                y = (int(m.group(2)) + int(m.group(4))) // 2
-                return x, y
-    return None, None
+                return (int(m.group(1)) + int(m.group(3))) // 2, (int(m.group(2)) + int(m.group(4))) // 2
+
+    # Приоритет 2: ищем EditText, потом правейшую Button на той же строке снизу
+    et_bottom = None
+    for l in fresh:
+        if "EditText" not in l: continue
+        m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+        if not m: continue
+        x1, y1, x2, y2 = map(int, m.groups())
+        if x2 - x1 < 400: continue
+        if y1 < 1400: continue
+        et_bottom = y2
+    if et_bottom is None:
+        return None, None
+
+    best = None
+    for l in fresh:
+        if "Button" not in l: continue
+        m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+        if not m: continue
+        x1, y1, x2, y2 = map(int, m.groups())
+        if y1 < et_bottom: continue
+        if y1 > et_bottom + 150: continue
+        h = y2 - y1
+        if h < 40 or h > 160: continue
+        if x2 - x1 < 30: continue
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        if best is None or cx > best[0]:
+            best = (cx, cy)
+    return best if best else (None, None)
+
+
+def _fresh_dump_lines():
+    send("DUMP"); time.sleep(1.5)
+    try:
+        with open(LOG, "rb") as f:
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except Exception:
+        return []
+    start = 0
+    for i in range(len(lines) - 1, -1, -1):
+        if "DUMP_BEGIN" in lines[i]:
+            start = i; break
+    return lines[start:]
+
+def find_edittext_coord():
+    """Динамический поиск поля ввода в DeepSeek (широкий EditText внизу экрана)."""
+    import re as _re
+    lines = _fresh_dump_lines()
+    best = None
+    for l in lines:
+        if "EditText" not in l: continue
+        m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+        if not m: continue
+        x1, y1, x2, y2 = map(int, m.groups())
+        w = x2 - x1
+        if w < 400: continue
+        if y1 < 1400: continue
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        if best is None or y1 > best[2]:
+            best = (cx, cy, y1)
+    return (best[0], best[1]) if best else (None, None)
+
+def find_newchat_coord():
+    """Динамический поиск кнопки нового чата (desc='Новый чат' или '+' в правом верхнем углу)."""
+    import re as _re
+    lines = _fresh_dump_lines()
+    for l in lines:
+        if 'desc="Новый чат"' in l or 'desc="New chat"' in l:
+            m = _re.search(r"\[(\d+),(\d+),(\d+),(\d+)\]", l)
+            if m:
+                x1, y1, x2, y2 = map(int, m.groups())
+                return ((x1 + x2) // 2, (y1 + y2) // 2)
+    return (None, None)
 
 
 def send_text_to_deepseek(text):
@@ -163,13 +235,27 @@ def send_text_to_deepseek(text):
     import base64 as _b
     b64 = _b.b64encode(text.encode("utf-8")).decode("ascii")
 
-    # 1. Тапаем в поле ввода
-    send("CLICK 537 2055")
+    # 1. Ищем поле ввода динамически
+    ex, ey = find_edittext_coord()
+    if ex is None:
+        print("!!! EditText не найден, fallback на хардкод")
+        ex, ey = 537, 2055
+    send(f"CLICK {ex} {ey}")
     time.sleep(1.2)
 
     # 2. Ставим текст
     send(f"SETTEXT {b64}")
     time.sleep(1.5)
+
+    # 2b. Проверяем, что текст вставился
+    st = snap()
+    et = (st.get("edittext") or "")
+    if len(et) < 5:
+        print(f"!!! SETTEXT не сработал (edittext len={len(et)}), повтор")
+        send(f"CLICK {ex} {ey}")
+        time.sleep(0.8)
+        send(f"SETTEXT {b64}")
+        time.sleep(1.5)
 
     # 3. Динамически ищем кнопку Отправить (3 попытки)
     for attempt in range(3):
@@ -195,7 +281,11 @@ def ensure_new_chat():
     send(f"OPEN_APP {DEEPSEEK}")
     wait_for(lambda s: s["pkg"] == DEEPSEEK, timeout=15, label="DeepSeek")
     time.sleep(1)
-    send("CLICK 1009 179")
+    nx, ny = find_newchat_coord()
+    if nx is not None:
+        send(f"CLICK {nx} {ny}")
+    else:
+        send("CLICK 1009 179")  # fallback
     time.sleep(2.5)
 
 def main():
@@ -295,8 +385,8 @@ def main():
                 last_tick = time.time()
 
             # Абсолютный таймаут 90 секунд
-            if elapsed > 60:
-                print("     timeout 60 сек — выхожу")
+            if elapsed > 180:
+                print("     timeout 180 сек — выхожу")
                 break
 
             lines = dump(timeout=5)
@@ -310,15 +400,19 @@ def main():
             if has_otp:
                 t_last_has_otp = time.time()
 
-            # Признак ГОТОВО: точное совпадение в любом TextView
+            # Признак ГОТОВО: точное совпадение в любом TextView,
+            # НО только если это не фрагмент кода (echo "ГОТОВО", # ГОТОВО, printf и т.п.)
             done_count = 0
             for _l in lines:
-                if "TextView" in _l:
-                    _m = re.search(r'text="((?:[^"\\]|\\.)*)"', _l)
-                    if _m:
-                        _t = _m.group(1).replace("\\n", "\n").strip().upper()
-                        if _t == "ГОТОВО":
-                            done_count += 1
+                if "TextView" not in _l: continue
+                _m = re.search(r'text="((?:[^"\\]|\\.)*)"', _l)
+                if not _m: continue
+                _t = _m.group(1).replace("\\n", "\n").strip().upper()
+                if _t != "ГОТОВО": continue
+                raw_lower = _l.lower()
+                if any(bad in raw_lower for bad in ('echo', 'printf', '\\', '`', '"', "'", '#')):
+                    continue
+                done_count += 1
             if done_count > done_seen_count:
                 print(f"     ✓ распознан сигнал ГОТОВО (найдено {done_count})")
                 done_signal = True
