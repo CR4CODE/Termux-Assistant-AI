@@ -77,7 +77,9 @@ def classify(task):
 
     bash_cmds = {"ls","df","du","uptime","date","whoami","pwd","free","ps","top",
                  "cat","head","tail","grep","find","echo","uname","env","unzip",
-                 "curl","wget","ping","mkdir","touch","rm","cp","mv","chmod"}
+                 "curl","wget","ping","mkdir","touch","rm","cp","mv","chmod",
+                 "wc","sort","uniq","tr","cut","tee","xargs","basename","dirname",
+                 "realpath","stat","file","diff","nl","seq","xxd","od","which","type"}
     # Shell-синтаксис -> точно bash
     shell_markers = ("|", ">", "<", "&&", "||", ";", "$(", "`", "  ", "\n")
     if any(m in t for m in shell_markers):

@@ -97,6 +97,13 @@ public class MainActivity extends Activity {
         progressBar = findViewById(R.id.ds_progress);
         statusLabel = findViewById(R.id.ds_status);
 
+        Button topClearBtn = findViewById(R.id.btn_top_clear);
+        if (topClearBtn != null) {
+            topClearBtn.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View v) { clearInput(); }
+            });
+        }
+
         Button menuBtn = findViewById(R.id.btn_menu);
         if (menuBtn != null) {
             menuBtn.setOnClickListener(new View.OnClickListener() {
@@ -1536,7 +1543,10 @@ public class MainActivity extends Activity {
 
                 logFreeResult(taskText, status, rc, elapsed, output);
 
-                if ("error".equals(status) || output == null || output.isEmpty()) {
+                // Настоящая HTTP-ошибка: соединения нет, или сервер вернул мусор
+                boolean httpErr = "error".equals(status) && (output == null || output.isEmpty()
+                    || output.startsWith("HTTP:") || output.startsWith("(ошибка"));
+                if (httpErr) {
                     String err = (output == null || output.isEmpty()) ? "Пусто (rc=" + rc + ")" : output;
                     if (statusLabel != null) statusLabel.setText("\u2717 \u041E\u0442\u043F\u0440\u0430\u0432\u0438\u043B \u0432 \u0447\u0430\u0442 \u0434\u043B\u044F \u0440\u0430\u0437\u0431\u043E\u0440\u0430");
                     sendErrorToChat(taskText, status, rc, err);
@@ -1544,7 +1554,7 @@ public class MainActivity extends Activity {
                     return;
                 }
 
-                if (isErrorResult(status, rc, output)) {
+                if (isErrorResult(taskText, status, rc, output)) {
                     if (statusLabel != null) statusLabel.setText("\u2717 \u041E\u0448\u0438\u0431\u043A\u0430 \u2014 \u043E\u0442\u043F\u0440\u0430\u0432\u0438\u043B \u0432 \u0447\u0430\u0442");
                     sendErrorToChat(taskText, status, rc, output);
                     setActiveMode("none");
@@ -1622,12 +1632,38 @@ public class MainActivity extends Activity {
         }
     }
 
-    private boolean isErrorResult(final String status, final int rc, final String output) {
-        // Только явные признаки: сервер вернул error, либо ненулевой код возврата.
-        // Подстрочный анализ даёт ложные срабатывания (метод находит сам себя в тексте).
-        if ("error".equals(status)) return true;
-        if (rc > 0) return true;
-        return false;
+    private boolean isErrorResult(final String task, final String status, final int rc, final String output) {
+        // HTTP-ошибка: соединение не удалось
+        if ("error".equals(status) && (output == null || output.isEmpty()
+            || output.startsWith("HTTP:") || output.startsWith("(ошибка"))) return true;
+
+        if (rc == 0 || rc == -1) return false;
+
+        // rc=1 — самая частая ложь: grep -c/find без совпадений, wc пустого файла, diff одинаковых.
+        if (rc == 1) {
+            String t = task == null ? "" : task.trim();
+            // первое слово команды (учитывая auto:)
+            if (t.startsWith("auto:")) t = t.substring(5).trim();
+            String first = t.split("\\s+", 2)[0];
+            // убираем префиксы путей
+            int slash = first.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < first.length()) first = first.substring(slash + 1);
+            String[] soft = {"grep","egrep","fgrep","rg","find","wc","diff","test","[","kill",
+                             "wait","jobs","basename","dirname","sort","uniq","tee","true"};
+            for (String c : soft) {
+                if (first.equals(c)) {
+                    // если в выводе явная ошибка — всё равно ошибка
+                    if (output != null && (output.contains("Traceback")
+                        || output.contains("command not found")
+                        || output.contains("Permission denied")
+                        || output.contains("syntax error"))) return true;
+                    return false;
+                }
+            }
+        }
+
+        // rc>=2 или rc=1 от «настоящей» команды — ошибка
+        return true;
     }
 
     private void sendErrorToChat(final String task, final String status, final int rc, final String output) {
@@ -2379,29 +2415,44 @@ public class MainActivity extends Activity {
         + "};"
         + "window.TermuxCopyFirstBash = function(){"
         + "try{"
+        + "var bashLangs=['bash','shell','sh','zsh'];"
+        + "var execLangs=['python','python3','py','node','nodejs','js','javascript','perl','ruby','php','powershell','ps1','lua','r'];"
+        + "function langOf(el){"
+        + "var cn=(el.className||'').toString().toLowerCase();"
+        + "var m=cn.match(/language-([a-z0-9]+)/);"
+        + "if(m)return m[1];"
+        + "var p=el.parentElement;"
+        + "if(p){var cn2=(p.className||'').toString().toLowerCase();var m2=cn2.match(/language-([a-z0-9]+)/);if(m2)return m2[1];}"
+        + "return '';"
+        + "}"
+        + "function isBash(l){for(var i=0;i<bashLangs.length;i++){if(l===bashLangs[i])return true;}return false;}"
+        + "function isExec(l){for(var i=0;i<execLangs.length;i++){if(l===execLangs[i])return true;}return false;}"
+        + "function pickFrom(root){"
+        + "var bashTxt=null, execTxt=null, anyTxt=null;"
+        + "var pres=root.querySelectorAll('pre');"
+        + "for(var i=0;i<pres.length;i++){"
+        + "var pre=pres[i];"
+        + "var lang='';"
+        + "var codeEl=pre.querySelector('code');"
+        + "if(codeEl)lang=langOf(codeEl);"
+        + "if(!lang)lang=langOf(pre);"
+        + "var txt=pre.textContent||pre.innerText||'';"
+        + "if(!txt)continue;"
+        + "if(isBash(lang))bashTxt=txt;"
+        + "else if(isExec(lang))execTxt=txt;"
+        + "else if(!lang)anyTxt=txt;"
+        + "}"
+        + "return {b:bashTxt,e:execTxt,a:anyTxt};"
+        + "}"
+        + "var r1=pickFrom(document);"
+        + "if(r1.b)return r1.b;"
+        + "if(r1.e)return r1.e;"
         + "var blocks=document.querySelectorAll('[class*=markdown]');"
         + "var last=null;"
-        + "for(var i=0;i<blocks.length;i++){"
-        + "var r=blocks[i].getBoundingClientRect();"
-        + "if(r.width<100)continue;"
-        + "last=blocks[i];"
-        + "}"
-        + "if(!last)return 'no_markdown';"
-        + "var cbs=last.querySelectorAll('.md-code-block, [class*=md-code-block]');"
-        + "for(var j=0;j<cbs.length;j++){"
-        + "var cb=cbs[j];"
-        + "var banner=cb.querySelector('[class*=banner]');"
-        + "var lang='';"
-        + "if(banner){"
-        + "var first=banner.firstElementChild;"
-        + "if(first)lang=(first.textContent||'').trim().toLowerCase();"
-        + "}"
-        + "if(lang.indexOf('bash')<0 && lang.indexOf('shell')<0 && lang.indexOf('sh')!==0)continue;"
-        + "var pre=cb.querySelector('pre');"
-        + "if(!pre)continue;"
-        + "return pre.textContent||pre.innerText||'';"
-        + "}"
-        + "return 'no_bash';"
+        + "for(var i=0;i<blocks.length;i++){var r=blocks[i].getBoundingClientRect();if(r.width<100)continue;last=blocks[i];}"
+        + "if(last){var r2=pickFrom(last);if(r2.b)return r2.b;if(r2.e)return r2.e;}"
+        + "if(r1.a)return r1.a;"
+        + "return 'no_exec_code: pres='+document.querySelectorAll('pre').length;"
         + "}catch(e){return 'err:'+e;}"
                 + "};"
         + "window.TermuxHideThinking = function(){"
@@ -2446,8 +2497,8 @@ public class MainActivity extends Activity {
         + "var all=document.querySelectorAll('[data-tx-hidden]');"
         + "for(var i=0;i<all.length;i++){all[i].style.display='';all[i].removeAttribute('data-tx-hidden');}"
         + "return 'shown:'+all.length;"
-        + "};";
-
+        + "};"
+        + "";
     static TaskItem parseTaskFile(File f) {
         try {
             FileReader r = new FileReader(f);
