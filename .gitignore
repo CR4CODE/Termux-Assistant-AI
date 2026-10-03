@@ -18,6 +18,8 @@ logs/
 *.pre-edit
 *.pre-edit2
 *.bak
+*.bak-*
+*.bak.*
 .pre_edit_bak/
 report.md
 patch*.py
